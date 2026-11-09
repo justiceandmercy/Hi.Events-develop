@@ -1,0 +1,88 @@
+import {GenericModalProps, IdParam,} from "../../../types.ts";
+import {useAccess} from "../../../hooks/useAccess.ts";
+import {useParams} from "react-router";
+import {useGetEvent} from "../../../queries/useGetEvent.ts";
+import {useGetOrder} from "../../../queries/useGetOrder.ts";
+import {Modal} from "../../common/Modal";
+import {Button, Checkbox, LoadingOverlay} from "@mantine/core";
+import classes from './CancelOrderModal.module.scss';
+import {Callout} from "../../common/Callout";
+import {OrderDetails} from "../../common/OrderDetails";
+import {AttendeeList} from "../../common/AttendeeList";
+import {t} from "@lingui/macro";
+import {useCancelOrder} from "../../../mutations/useCancelOrder.ts";
+import {showError, showSuccess} from "../../../utilites/notifications.tsx";
+import {useState} from "react";
+import {isOfflineOrder, isOrderRefundable} from "../../../utilites/orderHelper.ts";
+
+interface RefundOrderModalProps extends GenericModalProps {
+    orderId: IdParam,
+}
+
+export const CancelOrderModal = ({onClose, orderId}: RefundOrderModalProps) => {
+    const {eventId} = useParams();
+    const {data: order} = useGetOrder(eventId, orderId);
+    const {data: event, data: {products} = {}} = useGetEvent(eventId);
+    const cancelOrderMutation = useCancelOrder();
+    const [shouldRefund, setShouldRefund] = useState(true);
+
+    const canIssueRefunds = useAccess().can('ISSUE_REFUNDS');
+    const isRefundable = order && canIssueRefunds && isOrderRefundable(order);
+
+    const handleCancelOrder = () => {
+        cancelOrderMutation.mutate({
+            eventId, 
+            orderId,
+            refund: shouldRefund && isRefundable
+        }, {
+            onSuccess: () => {
+                const message = shouldRefund && isRefundable 
+                    ? t`Order has been canceled and refunded. The order owner has been notified.`
+                    : t`Order has been canceled and the order owner has been notified.`;
+                showSuccess(message);
+                onClose();
+            },
+            onError: (error: any) => {
+                showError(error?.response?.data?.message || t`Failed to cancel order`);
+            }
+        });
+    }
+
+    if (!order || !event) {
+        return <LoadingOverlay visible/>;
+    }
+
+    return (
+        <Modal
+            heading={t`Cancel Order ${order.public_id}`}
+            opened
+            onClose={onClose}
+        >
+            <OrderDetails order={order} event={event}/>
+
+            {products && <AttendeeList order={order} products={products}/>}
+
+            <Callout variant="info" className={classes.alert} title={t`Please Note`}>
+                {t`Canceling will cancel all attendees associated with this order, and release the tickets back into the available pool.`}
+            </Callout>
+
+            {isRefundable && (
+                <Checkbox
+                    mt={20}
+                    mb={20}
+                    checked={shouldRefund}
+                    onChange={(event) => setShouldRefund(event.currentTarget.checked)}
+                    label={t`Also refund this order`}
+                    description={isOfflineOrder(order)
+                        ? t`The order will be marked as refunded. You will need to return the payment to the customer yourself.`
+                        : t`The full order amount will be refunded to the customer's original payment method.`}
+                />
+            )}
+
+            <Button loading={cancelOrderMutation.isPending} className={'mb20'} color={'red'} fullWidth
+                    onClick={handleCancelOrder}>
+                {t`Cancel Order`}
+            </Button>
+        </Modal>
+    )
+};

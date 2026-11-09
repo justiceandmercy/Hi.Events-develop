@@ -1,0 +1,74 @@
+<?php
+
+namespace HiEvents\Resources\Event;
+
+use HiEvents\DomainObjects\EventDomainObject;
+use HiEvents\Resources\BaseResource;
+use HiEvents\Resources\EventLocation\EventLocationResource;
+use HiEvents\Resources\EventOccurrence\EventOccurrenceResource;
+use HiEvents\Resources\Image\ImageResource;
+use HiEvents\Resources\Organizer\OrganizerResource;
+use HiEvents\Resources\Product\ProductResource;
+use HiEvents\Resources\ProductCategory\ProductCategoryResource;
+use Illuminate\Http\Request;
+
+/**
+ * @mixin EventDomainObject
+ */
+class EventResource extends BaseResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->getId(),
+            'title' => $this->getTitle(),
+            'category' => $this->getCategory(),
+            'description' => $this->getDescription(),
+            'start_date' => $this->getStartDate(),
+            'end_date' => $this->getEndDate(),
+            'next_occurrence_start_date' => $this->getNextOccurrenceStartDate(),
+            /** @var 'DRAFT'|'LIVE'|'ARCHIVED'|'PENDING_MANUAL_REVIEW'|null */
+            'status' => $this->getStatus(),
+            /** @var 'SINGLE'|'RECURRING' */
+            'type' => $this->getType(),
+            'has_seat_map' => $this->getHasSeatMap(),
+            'recurrence_rule' => $this->getRecurrenceRule(),
+            /** @var 'UPCOMING'|'ONGOING'|'ENDED' */
+            'lifecycle_status' => $this->getLifeCycleStatus(),
+            'currency' => $this->getCurrency(),
+            'timezone' => $this->getTimezone(),
+            'slug' => $this->getSlug(),
+            'organizer_id' => $this->getOrganizerId(),
+            'products' => $this->when(
+                condition: (bool) $this->getProducts(),
+                value: fn () => ProductResource::collection($this->getProducts()),
+            ),
+            'product_categories' => $this->when(
+                condition: (bool) $this->getProductCategories(),
+                value: fn () => ProductCategoryResource::collection($this->getProductCategories()),
+            ),
+            'attributes' => $this->when((bool) $this->getAttributes(), fn () => $this->getAttributes()),
+            'images' => $this->when((bool) $this->getImages(), fn () => ImageResource::collection($this->getImages())),
+            'event_location' => $this->when(
+                condition: $this->getEventLocation() !== null,
+                value: fn () => new EventLocationResource($this->getEventLocation()),
+            ),
+            'settings' => $this->when(
+                condition: ! is_null($this->getEventSettings()),
+                value: fn () => new EventSettingsResource($this->getEventSettings())
+            ),
+            'organizer' => $this->when(
+                condition: ! is_null($this->getOrganizer()),
+                value: fn () => new OrganizerResource($this->getOrganizer())
+            ),
+            'statistics' => $this->when(
+                condition: ! is_null($this->getEventStatistics()),
+                value: fn () => new EventStatisticsResource($this->getEventStatistics())
+            ),
+            'occurrences' => $this->when(
+                condition: ! is_null($this->getEventOccurrences()) && $this->getEventOccurrences()->isNotEmpty(),
+                value: fn () => EventOccurrenceResource::collection($this->getEventOccurrences()),
+            ),
+        ];
+    }
+}

@@ -1,0 +1,130 @@
+@use "../../../styles/mixins";
+
+.app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--hi-color-gray);
+  overflow: hidden;
+}
+
+.topBar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  padding-top: calc(14px + env(safe-area-inset-top));
+  background: #fff;
+  border-bottom: 1px solid var(--hi-color-gray-2);
+  color: var(--hi-text);
+  z-index: 20;
+}
+
+.topBarMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.topLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--hi-color-gray-dark);
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.topTitle {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topScope {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--hi-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.topRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progressChip {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--hi-color-gray);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--hi-text);
+}
+
+.progressValue {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.progressOf {
+  font-size: 12px;
+  opacity: 0.65;
+  font-weight: 600;
+}
+
+.offlineBadge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: color-mix(in srgb, #e03131 12%, transparent);
+  color: #c92a2a;
+}
+
+.infoBtn {
+  color: var(--hi-color-gray-dark) !important;
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
+}
+
+.occurrenceFilterBar {
+  padding: 8px 12px 0;
+  display: flex;
+  justify-content: flex-start;
+  flex-shrink: 0;
+}

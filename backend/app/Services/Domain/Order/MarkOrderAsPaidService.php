@@ -1,0 +1,174 @@
+<?php
+
+namespace HiEvents\Services\Domain\Order;
+
+use HiEvents\DomainObjects\AttendeeDomainObject;
+use HiEvents\DomainObjects\EventLocationDomainObject;
+use HiEvents\DomainObjects\EventOccurrenceDomainObject;
+use HiEvents\DomainObjects\EventSettingDomainObject;
+use HiEvents\DomainObjects\Generated\OrderDomainObjectAbstract;
+use HiEvents\DomainObjects\InvoiceDomainObject;
+use HiEvents\DomainObjects\LocationDomainObject;
+use HiEvents\DomainObjects\OrderDomainObject;
+use HiEvents\DomainObjects\OrderItemDomainObject;
+use HiEvents\DomainObjects\OrganizerDomainObject;
+use HiEvents\DomainObjects\Status\AttendeeStatus;
+use HiEvents\DomainObjects\Status\InvoiceStatus;
+use HiEvents\DomainObjects\Status\OrderPaymentStatus;
+use HiEvents\DomainObjects\Status\OrderStatus;
+use HiEvents\Events\OrderStatusChangedEvent;
+use HiEvents\Exceptions\ResourceConflictException;
+use HiEvents\Repository\Eloquent\Value\Relationship;
+use HiEvents\Repository\Interfaces\AffiliateRepositoryInterface;
+use HiEvents\Repository\Interfaces\AttendeeRepositoryInterface;
+use HiEvents\Repository\Interfaces\EventRepositoryInterface;
+use HiEvents\Repository\Interfaces\InvoiceRepositoryInterface;
+use HiEvents\Repository\Interfaces\OrderRepositoryInterface;
+use HiEvents\Services\Domain\Mail\SendOrderDetailsService;
+use HiEvents\Services\Infrastructure\DomainEvents\DomainEventDispatcherService;
+use HiEvents\Services\Infrastructure\DomainEvents\Enums\DomainEventType;
+use HiEvents\Services\Infrastructure\DomainEvents\Events\OrderEvent;
+use Illuminate\Database\DatabaseManager;
+use Throwable;
+
+class MarkOrderAsPaidService
+{
+    public function __construct(
+        private readonly OrderRepositoryInterface $orderRepository,
+        private readonly DatabaseManager $databaseManager,
+        private readonly AffiliateRepositoryInterface $affiliateRepository,
+        private readonly InvoiceRepositoryInterface $invoiceRepository,
+        private readonly AttendeeRepositoryInterface $attendeeRepository,
+        private readonly DomainEventDispatcherService $domainEventDispatcherService,
+        private readonly EventRepositoryInterface $eventRepository,
+        private readonly OfflineApplicationFeeRecordService $offlineApplicationFeeRecordService,
+        private readonly SendOrderDetailsService $sendOrderDetailsService,
+        private readonly OccurrenceStatusValidator $occurrenceStatusValidator,
+    ) {}
+
+    /**
+     * @throws ResourceConflictException|Throwable
+     */
+    public function markOrderAsPaid(
+        int $orderId,
+        int $eventId,
+    ): OrderDomainObject {
+        return $this->databaseManager->transaction(function () use ($orderId, $eventId) {
+            /** @var OrderDomainObject $order */
+            $order = $this->orderRepository
+                ->loadRelation(OrderItemDomainObject::class)
+                ->loadRelation(AttendeeDomainObject::class)
+                ->findFirstWhere([
+                    OrderDomainObjectAbstract::ID => $orderId,
+                    OrderDomainObjectAbstract::EVENT_ID => $eventId,
+                ]);
+
+            $event = $this->eventRepository
+                ->loadRelation(new Relationship(OrganizerDomainObject::class, name: 'organizer'))
+                ->loadRelation(new Relationship(EventSettingDomainObject::class))
+                ->loadRelation(new Relationship(domainObject: EventOccurrenceDomainObject::class, nested: [
+                    new Relationship(domainObject: EventLocationDomainObject::class, name: 'event_location', nested: [
+                        new Relationship(domainObject: LocationDomainObject::class, name: 'location'),
+                    ]),
+                ]))
+                ->loadRelation(new Relationship(domainObject: EventLocationDomainObject::class, name: 'event_location', nested: [
+                    new Relationship(domainObject: LocationDomainObject::class, name: 'location'),
+                ]))
+                ->findById($order->getEventId());
+
+            if ($order->getStatus() !== OrderStatus::AWAITING_OFFLINE_PAYMENT->name) {
+                throw new ResourceConflictException(__('Order is not awaiting offline payment'));
+            }
+
+            $this->occurrenceStatusValidator->assertOrderOccurrencesArePurchasable($order);
+
+            $this->updateOrderStatus($orderId);
+
+            $this->updateOrderInvoice($orderId);
+
+            $updatedOrder = $this->orderRepository
+                ->loadRelation(new Relationship(
+                    domainObject: OrderItemDomainObject::class,
+                    nested: [
+                        new Relationship(
+                            domainObject: EventOccurrenceDomainObject::class,
+                            nested: [
+                                new Relationship(domainObject: EventLocationDomainObject::class, name: 'event_location', nested: [
+                                    new Relationship(domainObject: LocationDomainObject::class, name: 'location'),
+                                ]),
+                            ],
+                            name: 'event_occurrence',
+                        ),
+                    ],
+                ))
+                ->loadRelation(AttendeeDomainObject::class)
+                ->loadRelation(InvoiceDomainObject::class)
+                ->findById($orderId);
+
+            if ($updatedOrder->getAffiliateId()) {
+                $this->affiliateRepository->incrementSales(
+                    $updatedOrder->getAffiliateId(),
+                    $updatedOrder->getTotalGross()
+                );
+            }
+
+            $this->updateAttendeeStatuses($updatedOrder);
+
+            event(new OrderStatusChangedEvent(
+                order: $updatedOrder,
+                sendEmails: false
+            ));
+
+            $this->domainEventDispatcherService->dispatch(
+                new OrderEvent(
+                    type: DomainEventType::ORDER_MARKED_AS_PAID,
+                    orderId: $orderId,
+                ),
+            );
+
+            $this->offlineApplicationFeeRecordService->record($updatedOrder);
+
+            $this->sendOrderDetailsService->sendCustomerOrderSummary(
+                order: $updatedOrder,
+                event: $event,
+                organizer: $event->getOrganizer(),
+                eventSettings: $event->getEventSettings(),
+                invoice: $updatedOrder->getLatestInvoice(),
+            );
+
+            return $updatedOrder;
+        });
+    }
+
+    private function updateOrderInvoice(int $orderId): void
+    {
+        $invoice = $this->invoiceRepository->findLatestInvoiceForOrder($orderId);
+
+        if ($invoice) {
+            $this->invoiceRepository->updateFromArray($invoice->getId(), [
+                'status' => InvoiceStatus::PAID->name,
+            ]);
+        }
+    }
+
+    private function updateOrderStatus(int $orderId): void
+    {
+        $this->orderRepository->updateFromArray($orderId, [
+            OrderDomainObjectAbstract::STATUS => OrderStatus::COMPLETED->name,
+            OrderDomainObjectAbstract::PAYMENT_STATUS => OrderPaymentStatus::PAYMENT_RECEIVED->name,
+        ]);
+    }
+
+    private function updateAttendeeStatuses(OrderDomainObject $updatedOrder): void
+    {
+        $this->attendeeRepository->updateWhere(
+            attributes: [
+                'status' => AttendeeStatus::ACTIVE->name,
+            ],
+            where: [
+                'order_id' => $updatedOrder->getId(),
+                'status' => AttendeeStatus::AWAITING_PAYMENT->name,
+            ],
+        );
+    }
+}

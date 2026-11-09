@@ -1,0 +1,65 @@
+import {api} from "./client.ts";
+import {
+    Account,
+    AccountDeletionRequest,
+    AccountDeletionStatus,
+    AccountSubscription,
+    GenericDataResponse,
+    IdParam,
+    SubscriptionBillingInterval,
+    User,
+} from "../types.ts";
+
+interface CreateAccountRequest {
+    first_name: string;
+    last_name: string;
+    email: string;
+    password?: string;
+}
+
+export const accountClient = {
+    create: async (account: CreateAccountRequest) => {
+        const response = await api.post<GenericDataResponse<User>>('accounts', account);
+        return response.data;
+    },
+    getAccount: async () => {
+        const response = await api.get<GenericDataResponse<Account>>('accounts');
+        return response.data;
+    },
+    updateAccount: async (account: Partial<Account>) => {
+        const response = await api.put<GenericDataResponse<Account>>('accounts', account);
+        return response.data;
+    },
+    updateTwoFactorRequirement: async (accountId: IdParam, required: boolean) => {
+        const response = await api.put<GenericDataResponse<Account>>(`accounts/${accountId}/two-factor-requirement`, {
+            require_two_factor_authentication: required,
+        });
+        return response.data;
+    },
+    getDeletionStatus: async () => {
+        const response = await api.get<GenericDataResponse<AccountDeletionStatus>>('accounts/deletion-request');
+        return response.data;
+    },
+    requestDeletion: async (payload: { confirmation: string; reason?: string }) => {
+        const response = await api.post<GenericDataResponse<AccountDeletionRequest>>('accounts/deletion-request', payload);
+        return response.data;
+    },
+    cancelDeletion: async () => {
+        const response = await api.delete<GenericDataResponse<AccountDeletionRequest>>('accounts/deletion-request');
+        return response.data;
+    },
+    getSubscription: async (accountId: IdParam, refreshFromStripe: boolean) => {
+        const response = await api.get<GenericDataResponse<AccountSubscription>>(`accounts/${accountId}/subscription`, {
+            params: refreshFromStripe ? {refresh: 1} : undefined,
+        });
+        return response.data;
+    },
+    createSubscriptionCheckoutSession: async (accountId: IdParam, interval: SubscriptionBillingInterval) => {
+        const response = await api.post<{ url: string }>(`accounts/${accountId}/subscription/checkout-session`, {interval});
+        return response.data;
+    },
+    createSubscriptionPortalSession: async (accountId: IdParam) => {
+        const response = await api.post<{ url: string }>(`accounts/${accountId}/subscription/portal-session`);
+        return response.data;
+    },
+}

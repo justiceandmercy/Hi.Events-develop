@@ -1,0 +1,72 @@
+@use "../auth-common" as auth;
+@use "../../../../styles/mixins.scss";
+
+.header {
+  @include auth.auth-header;
+}
+
+.invitationCard {
+  width: 100%;
+
+  form {
+    fieldset {
+      border: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    @include auth.auth-inputs;
+    @include auth.auth-button;
+
+    :global(.mantine-InputWrapper-root) {
+      margin-bottom: 1rem;
+    }
+
+    :global(.mantine-Checkbox-root) {
+      margin-bottom: 0.75rem;
+    }
+  }
+}
+
+.inputGroup {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+
+  @include mixins.respond-below(lg) {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  :global(.mantine-InputWrapper-root) {
+    margin-bottom: 0;
+
+    @include mixins.respond-below(lg) {
+      margin-bottom: 1rem;
+    }
+  }
+}
+
+.invitedEmail {
+  color: var(--hi-text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.signedIn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  @include auth.auth-button;
+
+  :global(.mantine-Button-root[data-variant="subtle"]) {
+    background-image: none;
+    box-shadow: none;
+  }
+}
+
+
+.terms {
+  @include auth.auth-footer-terms;
+}

@@ -1,0 +1,77 @@
+<?php
+
+declare(strict_types=1);
+
+namespace HiEvents\Models;
+
+use HiEvents\DomainObjects\Enums\Role;
+use HiEvents\DomainObjects\Status\AccountDeletionRequestStatus;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class Account extends BaseModel
+{
+    use HasFactory;
+    use SoftDeletes;
+
+    public function users(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'account_users')
+            ->withPivot('role')
+            ->withTimestamps();
+    }
+
+    public function usersByRole(Role $roleName): BelongsToMany
+    {
+        return $this->users()->wherePivot('role', '=', $roleName->name);
+    }
+
+    public function events(): HasMany
+    {
+        return $this->hasMany(Event::class);
+    }
+
+    public function organizers(): HasMany
+    {
+        return $this->hasMany(Organizer::class);
+    }
+
+    public function configuration(): BelongsTo
+    {
+        return $this->belongsTo(
+            related: AccountConfiguration::class,
+            foreignKey: 'account_configuration_id',
+        );
+    }
+
+    public function account_stripe_platforms(): HasMany
+    {
+        return $this->hasMany(AccountStripePlatform::class);
+    }
+
+    public function account_vat_setting(): HasOne
+    {
+        return $this->hasOne(AccountVatSetting::class);
+    }
+
+    public function messagingTier(): BelongsTo
+    {
+        return $this->belongsTo(AccountMessagingTier::class, 'account_messaging_tier_id');
+    }
+
+    public function active_deletion_request(): HasOne
+    {
+        return $this->hasOne(AccountDeletionRequest::class)
+            ->where('status', AccountDeletionRequestStatus::REQUESTED->name)
+            ->latestOfMany();
+    }
+
+    public function lifecycleNudges(): HasMany
+    {
+        return $this->hasMany(AccountLifecycleNudge::class);
+    }
+}

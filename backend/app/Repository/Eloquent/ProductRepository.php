@@ -1,0 +1,304 @@
+<?php
+
+declare(strict_types=1);
+
+namespace HiEvents\Repository\Eloquent;
+
+use Exception;
+use HiEvents\DomainObjects\CapacityAssignmentDomainObject;
+use HiEvents\DomainObjects\Generated\ProductDomainObjectAbstract;
+use HiEvents\DomainObjects\ProductDomainObject;
+use HiEvents\DomainObjects\Status\OrderStatus;
+use HiEvents\DomainObjects\TaxAndFeesDomainObject;
+use HiEvents\Http\DTO\QueryParamsDTO;
+use HiEvents\Models\BoxOffice;
+use HiEvents\Models\CapacityAssignment;
+use HiEvents\Models\CheckInList;
+use HiEvents\Models\Product;
+use HiEvents\Repository\Interfaces\ProductRepositoryInterface;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Throwable;
+
+/**
+ * @extends BaseRepository<ProductDomainObject>
+ */
+class ProductRepository extends BaseRepository implements ProductRepositoryInterface
+{
+    public function findByEventId(int $eventId, QueryParamsDTO $params): LengthAwarePaginator
+    {
+        $where = [
+            [ProductDomainObjectAbstract::EVENT_ID, '=', $eventId],
+        ];
+
+        if (! empty($params->query)) {
+            $where[] = static function (Builder $builder) use ($params) {
+                $builder
+                    ->where(ProductDomainObjectAbstract::TITLE, 'ilike', '%'.$params->query.'%');
+            };
+        }
+
+        $this->model = $this->model->orderBy(
+            $this->validateSortColumn($params->sort_by, ProductDomainObject::class),
+            $this->validateSortDirection($params->sort_direction, ProductDomainObject::class),
+        );
+
+        return $this->paginateWhere(
+            where: $where,
+            limit: $params->per_page,
+            page: $params->page,
+        );
+    }
+
+    public function getTaxesByProductId(int $productId): Collection
+    {
+        $query = <<<'SQL'
+            SELECT tf.*
+            FROM product_taxes_and_fees ttf
+            INNER JOIN taxes_and_fees tf ON tf.id = ttf.tax_and_fee_id
+            WHERE ttf.product_id = :productId
+            AND tf.deleted_at IS NULL
+        SQL;
+
+        $taxAndFees = $this->db->select($query, [
+            'productId' => $productId,
+        ]);
+
+        return $this->handleResults($taxAndFees, TaxAndFeesDomainObject::class);
+    }
+
+    public function getProductsByTaxId(int $taxId): Collection
+    {
+        $query = <<<'SQL'
+            SELECT t.*
+            FROM product_taxes_and_fees ttf
+            INNER JOIN products t ON t.id = ttf.product_id
+            WHERE ttf.tax_and_fee_id = :taxAndFeeId
+            AND t.deleted_at IS NULL
+        SQL;
+
+        $products = $this->model->select($query, [
+            'taxAndFeeId' => $taxId,
+        ]);
+
+        return $this->handleResults($products, ProductDomainObject::class);
+    }
+
+    public function getCapacityAssignmentsByProductId(int $productId): Collection
+    {
+        $capacityAssignments = CapacityAssignment::whereHas('products', static function ($query) use ($productId) {
+            $query->where('product_id', $productId);
+        })->get();
+
+        return $this->handleResults($capacityAssignments, CapacityAssignmentDomainObject::class);
+    }
+
+    public function addTaxesAndFeesToProduct(int $productId, array $taxIds): void
+    {
+        Product::findOrFail($productId)?->tax_and_fees()->sync($taxIds);
+    }
+
+    public function syncAddons(int $productId, array $addonProductIds): void
+    {
+        $syncData = [];
+        foreach (array_values($addonProductIds) as $position => $addonProductId) {
+            $syncData[$addonProductId] = ['order' => $position];
+        }
+
+        Product::findOrFail($productId)->addons()->sync($syncData);
+    }
+
+    public function detachAddonAssociations(int $productId): void
+    {
+        $this->runQuery(
+            fn () => $this->db->table('product_addons')
+                ->where('product_id', $productId)
+                ->orWhere('addon_product_id', $productId)
+                ->delete()
+        );
+    }
+
+    public function findParentProductIds(array $addonProductIds): Collection
+    {
+        return $this->runQuery(
+            fn () => collect(
+                $this->db->table('product_addons')
+                    ->whereIn('addon_product_id', $addonProductIds)
+                    ->get(['product_id', 'addon_product_id'])
+            )->groupBy('addon_product_id')
+                ->map(fn ($rows) => $rows->pluck('product_id')->all())
+        );
+    }
+
+    public function addCapacityAssignmentToProducts(int $capacityAssignmentId, array $productIds): void
+    {
+        $productIds = array_unique($productIds);
+
+        Product::whereNotIn('id', $productIds)
+            ->whereHas('capacity_assignments', function ($query) use ($capacityAssignmentId) {
+                $query->where('capacity_assignment_id', $capacityAssignmentId);
+            })
+            ->each(function (Product $product) use ($capacityAssignmentId) {
+                $product->capacity_assignments()->detach($capacityAssignmentId);
+            });
+
+        Product::whereIn('id', $productIds)
+            ->each(function (Product $product) use ($capacityAssignmentId) {
+                $product->capacity_assignments()->syncWithoutDetaching([$capacityAssignmentId]);
+            });
+    }
+
+    public function addCheckInListToProducts(int $checkInListId, array $productIds): void
+    {
+        $productIds = array_unique($productIds);
+
+        Product::whereNotIn('id', $productIds)
+            ->whereHas('check_in_lists', function ($query) use ($checkInListId) {
+                $query->where('check_in_list_id', $checkInListId);
+            })
+            ->each(function (Product $product) use ($checkInListId) {
+                $product->check_in_lists()->detach($checkInListId);
+            });
+
+        Product::whereIn('id', $productIds)
+            ->each(function (Product $product) use ($checkInListId) {
+                $product->check_in_lists()->syncWithoutDetaching([$checkInListId]);
+            });
+    }
+
+    public function removeCheckInListFromProducts(int $checkInListId): void
+    {
+        $checkInList = CheckInList::find($checkInListId);
+
+        $checkInList?->products()->detach();
+    }
+
+    public function addBoxOfficeToProducts(int $boxOfficeId, array $productIds): void
+    {
+        $productIds = array_unique($productIds);
+
+        Product::whereNotIn('id', $productIds)
+            ->whereHas('box_offices', function ($query) use ($boxOfficeId) {
+                $query->where('box_office_id', $boxOfficeId);
+            })
+            ->each(function (Product $product) use ($boxOfficeId) {
+                $product->box_offices()->detach($boxOfficeId);
+            });
+
+        Product::whereIn('id', $productIds)
+            ->each(function (Product $product) use ($boxOfficeId) {
+                $product->box_offices()->syncWithoutDetaching([$boxOfficeId]);
+            });
+    }
+
+    public function removeBoxOfficeFromProducts(int $boxOfficeId): void
+    {
+        $boxOffice = BoxOffice::find($boxOfficeId);
+
+        $boxOffice?->products()->detach();
+    }
+
+    public function removeCapacityAssignmentFromProducts(int $capacityAssignmentId): void
+    {
+        $capacityAssignment = CapacityAssignment::find($capacityAssignmentId);
+
+        $capacityAssignment?->products()->detach();
+    }
+
+    /**
+     * @throws Throwable
+     */
+    public function bulkUpdateProductsAndCategories(int $eventId, array $productUpdates, array $categoryUpdates): void
+    {
+        $this->db->beginTransaction();
+
+        try {
+            $productIds = array_column($productUpdates, 'id');
+            $productOrders = range(1, count($productUpdates));
+            $productCategoryIds = array_column($productUpdates, 'product_category_id');
+
+            $productParameters = [
+                'eventId' => $eventId,
+                'productIds' => '{'.implode(',', $productIds).'}',
+                'productOrders' => '{'.implode(',', $productOrders).'}',
+                'productCategoryIds' => '{'.implode(',', $productCategoryIds).'}',
+            ];
+
+            $productUpdateQuery = 'WITH new_order AS (
+                                  SELECT unnest(:productIds::bigint[]) AS product_id,
+                                         unnest(:productOrders::int[]) AS order,
+                                         unnest(:productCategoryIds::bigint[]) AS category_id
+                              )
+                              UPDATE products
+                              SET "order" = new_order.order,
+                                  product_category_id = new_order.category_id,
+                                  updated_at = NOW()
+                              FROM new_order
+                              WHERE products.id = new_order.product_id AND products.event_id = :eventId';
+
+            $this->db->update($productUpdateQuery, $productParameters);
+
+            $categoryIds = array_column($categoryUpdates, 'id');
+            $categoryOrders = array_column($categoryUpdates, 'order');
+
+            $categoryParameters = [
+                'eventId' => $eventId,
+                'categoryIds' => '{'.implode(',', $categoryIds).'}',
+                'categoryOrders' => '{'.implode(',', $categoryOrders).'}',
+            ];
+
+            $categoryUpdateQuery = 'WITH new_category_order AS (
+                                  SELECT unnest(:categoryIds::bigint[]) AS category_id,
+                                         unnest(:categoryOrders::int[]) AS order
+                              )
+                              UPDATE product_categories
+                              SET "order" = new_category_order.order,
+                                  updated_at = NOW()
+                              FROM new_category_order
+                              WHERE product_categories.id = new_category_order.category_id AND product_categories.event_id = :eventId';
+
+            $this->db->update($categoryUpdateQuery, $categoryParameters);
+
+            $this->db->commit();
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function hasAssociatedOrders(int $productId): bool
+    {
+        return $this->runQuery(
+            fn () => $this->db->table('order_items')
+                ->join('orders', 'order_items.order_id', '=', 'orders.id')
+                ->where('order_items.product_id', $productId)
+                ->where(static function (QueryBuilder $query) {
+                    $query
+                        ->whereIn('orders.status', [
+                            OrderStatus::COMPLETED->name,
+                            OrderStatus::CANCELLED->name,
+                            OrderStatus::AWAITING_OFFLINE_PAYMENT->name,
+                        ])
+                        ->orWhere(static function (QueryBuilder $reserved) {
+                            $reserved
+                                ->where('orders.status', OrderStatus::RESERVED->name)
+                                ->where('orders.reserved_until', '>', now())
+                                ->whereNull('orders.deleted_at');
+                        });
+                })
+                ->exists()
+        );
+    }
+
+    public function getModel(): string
+    {
+        return Product::class;
+    }
+
+    public function getDomainObject(): string
+    {
+        return ProductDomainObject::class;
+    }
+}

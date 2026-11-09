@@ -1,0 +1,16 @@
+[build]
+  dockerfile = "Dockerfile.all-in-one"
+
+[deploy]
+  healthcheckPath = "/health"
+  healthcheckTimeout = 60
+  restartPolicyType = "on_failure"
+  restartPolicyMaxRetries = 3
+
+[env]
+  APP_ENV = "production"
+  APP_DEBUG = "false"
+  LOG_CHANNEL = "stack"
+  QUEUE_CONNECTION = "redis"
+  CACHE_DRIVER = "redis"
+  SESSION_DRIVER = "redis"

@@ -1,0 +1,343 @@
+import {Modal, ModalFooter} from "../../common/Modal";
+import {EventOccurrenceStatus, EventType, GenericModalProps, ProductCategory, ProductType, QueryFilters} from "../../../types.ts";
+import {Button} from "../../common/Button";
+import {useNavigate, useParams} from "react-router";
+import {useFormErrorResponseHandler} from "../../../hooks/useFormErrorResponseHandler.tsx";
+import {useForm} from "@mantine/form";
+import {LoadingOverlay, NumberInput, Select, Switch, TextInput} from "@mantine/core";
+import {Callout} from "../../common/Callout";
+import {useGetEvent} from "../../../queries/useGetEvent.ts";
+import {CreateAttendeeRequest} from "../../../api/attendee.client.ts";
+import {useCreateAttendee} from "../../../mutations/useCreateAttendee.ts";
+import {showSuccess} from "../../../utilites/notifications.tsx";
+import {t, Trans} from "@lingui/macro";
+import {useEffect, useMemo} from "react";
+import {InputGroup} from "../../common/InputGroup";
+import {
+    availableLocales,
+    getClientLocale,
+    getLocaleName,
+    localeToFlagEmojiMap,
+    SupportedLocales
+} from "../../../locales.ts";
+import {ProductSelector} from "../../common/ProductSelector";
+import {getProductsFromEvent} from "../../../utilites/helpers.ts";
+import {useGetEventOccurrences} from "../../../queries/useGetEventOccurrences.ts";
+import {useGetPriceOverrides} from "../../../queries/useGetPriceOverrides.ts";
+import {prettyDate} from "../../../utilites/dates.ts";
+import {BouncingEmoji} from "../../common/BouncingEmoji";
+import {ManualSeatField} from "../../../ee/seating/components/ManualSeatField";
+import {Stack, Text} from "@mantine/core";
+
+export const CreateAttendeeModal = ({onClose}: GenericModalProps) => {
+    const {eventId} = useParams();
+    const errorHandler = useFormErrorResponseHandler();
+    const {data: event, isFetched: isEventFetched} = useGetEvent(eventId);
+    const mutation = useCreateAttendee();
+    const navigate = useNavigate();
+    const eventProducts = getProductsFromEvent(event);
+    const eventHasProducts = eventProducts && eventProducts?.length > 0;
+    const isRecurring = event?.type === EventType.RECURRING;
+    const {data: occurrencesData} = useGetEventOccurrences(
+        eventId,
+        {pageNumber: 1, perPage: 1200} as QueryFilters,
+    );
+
+    const occurrenceOptions = useMemo(() => {
+        if (!isRecurring || !occurrencesData?.data) return [];
+        return occurrencesData.data
+            .filter(occ => occ.status !== 'CANCELLED')
+            .map(occ => ({
+                label: prettyDate(occ.start_date, event?.timezone || 'UTC')
+                    + (occ.label ? ` (${occ.label})` : ''),
+                value: String(occ.id),
+            }));
+    }, [isRecurring, occurrencesData, event?.timezone]);
+
+    const form = useForm<CreateAttendeeRequest>({
+        initialValues: {
+            product_id: undefined,
+            email: '',
+            first_name: '',
+            last_name: '',
+            amount_paid: 0.00,
+            send_confirmation_email: true,
+            taxes_and_fees: [],
+            locale: getClientLocale() as SupportedLocales,
+            event_occurrence_id: null,
+            override_capacity: false,
+        },
+    });
+
+    const selectedOccurrence = useMemo(() => {
+        if (!isRecurring || !occurrencesData?.data || form.values.event_occurrence_id == null) return undefined;
+        const targetId = Number(form.values.event_occurrence_id);
+        return occurrencesData.data.find(occ => Number(occ.id) === targetId);
+    }, [isRecurring, occurrencesData, form.values.event_occurrence_id]);
+
+    const occurrenceIsFull = useMemo(() => {
+        if (!selectedOccurrence) return false;
+        if (selectedOccurrence.status === EventOccurrenceStatus.SOLD_OUT) return true;
+        if (selectedOccurrence.capacity == null) return false;
+        return (selectedOccurrence.used_capacity ?? 0) >= selectedOccurrence.capacity;
+    }, [selectedOccurrence]);
+
+    useEffect(() => {
+        if (form.values.override_capacity && !occurrenceIsFull) {
+            form.setFieldValue('override_capacity', false);
+        }
+    }, [occurrenceIsFull]);
+
+    useEffect(() => {
+        form.setFieldValue('seat_uid', undefined);
+    }, [form.values.product_id, form.values.event_occurrence_id]);
+
+    const {data: priceOverrides} = useGetPriceOverrides(
+        eventId,
+        isRecurring ? form.values.event_occurrence_id ?? undefined : undefined,
+    );
+
+    useEffect(() => {
+        if (event?.product_categories) {
+            form.setFieldValue(
+                'product_price_id',
+                String(eventProducts?.find(product => product.id == form.values.product_id)?.prices?.[0]?.id)
+            );
+
+            const taxesAndFees = eventProducts
+                ?.find(product => product.id == form.values.product_id)
+                ?.taxes_and_fees;
+
+            if (taxesAndFees?.length === 0) {
+                form.setFieldValue('taxes_and_fees', []);
+            }
+
+            taxesAndFees?.forEach((tax, index) => {
+                    form.setFieldValue(
+                        `taxes_and_fees.${index}`,
+                        {
+                            tax_or_fee_id: tax.id,
+                            amount: 0.00,
+                            name: tax.name,
+                        },
+                    );
+                }
+            );
+        }
+    }, [form.values.product_id]);
+
+    useEffect(() => {
+        if (form.values.product_price_id) {
+            const override = priceOverrides?.find(
+                o => String(o.product_price_id) === String(form.values.product_price_id)
+            );
+
+            if (override) {
+                form.setFieldValue('amount_paid', Number(override.price));
+            } else {
+                const basePrice = eventProducts
+                    ?.find(product => product.id == form.values.product_id)?.prices
+                    ?.find(productPrice => String(productPrice.id) === String(form.values.product_price_id))?.price;
+                form.setFieldValue('amount_paid', Number(basePrice) || 0);
+            }
+        }
+    }, [form.values.product_price_id, priceOverrides]);
+
+    const handleSubmit = (values: CreateAttendeeRequest) => {
+        mutation.mutate({
+            eventId: eventId,
+            attendeeData: values,
+        }, {
+            onSuccess: () => {
+                showSuccess(t`Successfully created attendee`);
+                onClose();
+            },
+            onError: (error) => errorHandler(form, error),
+        })
+    };
+
+    if (!event?.product_categories) {
+        return (
+            <LoadingOverlay visible/>
+        )
+    }
+
+    if (isEventFetched && !eventHasProducts) {
+        return (
+            <Modal opened onClose={onClose} heading={t`Manually Add Attendee`}>
+                <p>{t`You must create a ticket before you can manually add an attendee.`}</p>
+                <Button
+                    fullWidth
+                    variant={'light'}
+                    onClick={() => {
+                        navigate(`/manage/event/${eventId}/products`)
+                    }}
+                >
+                    {t`Manage tickets`}
+                </Button>
+            </Modal>
+        )
+    }
+
+    if (isEventFetched && isRecurring && occurrencesData && occurrenceOptions.length === 0) {
+        return (
+            <Modal opened onClose={onClose} heading={t`Manually Add Attendee`}>
+                <Stack align="center" gap="md" py="lg">
+                    <BouncingEmoji emoji="📅"/>
+                    <Text fw={600} size="lg" ta="center">
+                        {t`No occurrences available`}
+                    </Text>
+                    <Text c="dimmed" size="sm" ta="center" maw={320}>
+                        {t`You need to create at least one occurrence before you can add attendees to this recurring event.`}
+                    </Text>
+                    <Button
+                        fullWidth
+                        variant="light"
+                        onClick={() => {
+                            onClose();
+                            navigate(`/manage/event/${eventId}/occurrences`);
+                        }}
+                    >
+                        {t`Go to Schedule`}
+                    </Button>
+                </Stack>
+            </Modal>
+        );
+    }
+
+    return (
+        <Modal opened onClose={onClose} heading={t`Manually Add Attendee`}>
+            <form onSubmit={form.onSubmit(handleSubmit)}>
+                <InputGroup>
+                    <TextInput
+                        {...form.getInputProps('first_name')}
+                        label={t`First name`}
+                        placeholder={t`Patrick`}
+                        required
+                    />
+
+                    <TextInput
+                        {...form.getInputProps('last_name')}
+                        label={t`Last name`}
+                        placeholder={t`Johnson`}
+                        required
+                    />
+                </InputGroup>
+                <TextInput
+                    {...form.getInputProps('email')}
+                    label={t`Email address`}
+                    placeholder={t`patrick@acme.com`}
+                    required
+                />
+
+                <Select
+                    required
+                    data={availableLocales.map(locale => ({
+                        value: locale,
+                        label: localeToFlagEmojiMap[locale as SupportedLocales] + ' ' + getLocaleName(locale as SupportedLocales),
+                    }))}
+                    {...form.getInputProps('locale')}
+                    label={t`Language`}
+                    placeholder={t`English`}
+                    description={t`The language the attendee will receive emails in.`}
+                />
+
+                <ProductSelector
+                    placeholder={t`Select Ticket`}
+                    label={t`Ticket`}
+                    productCategories={event.product_categories as ProductCategory[]}
+                    form={form}
+                    productFieldName={'product_id'}
+                    multiSelect={false}
+                    showTierSelector={true}
+                    includedProductTypes={[ProductType.Ticket]}
+                />
+
+                {isRecurring && occurrenceOptions.length > 0 && (
+                    <Select
+                        label={t`Occurrence`}
+                        placeholder={t`Select occurrence`}
+                        data={occurrenceOptions}
+                        required
+                        value={form.values.event_occurrence_id ? String(form.values.event_occurrence_id) : null}
+                        onChange={(val) => form.setFieldValue('event_occurrence_id', val ? Number(val) : null)}
+                        {...(form.errors.event_occurrence_id ? {error: form.errors.event_occurrence_id} : {})}
+                    />
+                )}
+
+                <ManualSeatField
+                    eventId={eventId}
+                    hasSeatMap={!!event?.has_seat_map}
+                    productId={form.values.product_id}
+                    occurrenceId={isRecurring ? form.values.event_occurrence_id ?? undefined : occurrencesData?.data?.[0]?.id}
+                    value={form.values.seat_uid}
+                    error={form.errors.seat_uid}
+                    onChange={seatUid => form.setFieldValue('seat_uid', seatUid)}
+                />
+
+                {occurrenceIsFull && (
+                    <Callout
+                        variant="tip"
+                        style={{marginTop: 16}}
+                        title={t`This occurrence is at capacity`}
+                    >
+                        <Stack gap="xs">
+                            <Text size="sm">
+                                {selectedOccurrence?.capacity != null
+                                    ? t`${selectedOccurrence.used_capacity ?? 0} of ${selectedOccurrence.capacity} seats are taken.`
+                                    : t`This date is marked sold out.`}
+                            </Text>
+                            <Switch
+                                label={t`Add this attendee anyway (override capacity)`}
+                                description={t`The override is recorded in the order audit log.`}
+                                {...form.getInputProps('override_capacity', {type: 'checkbox'})}
+                            />
+                        </Stack>
+                    </Callout>
+                )}
+
+                <NumberInput
+                    required
+                    mt={20}
+                    fixedDecimalScale
+                    {...form.getInputProps('amount_paid')}
+                    label={<Trans>Amount paid ({event?.currency})</Trans>}
+                    placeholder="0.00"
+                    decimalScale={2}
+                    step={1}
+                    min={0}
+                    description={t`Enter an amount excluding taxes and fees.`}
+                />
+
+                {form.values.taxes_and_fees?.map((tax, index) => {
+                        return (
+                            <NumberInput
+                                required
+                                mt={20}
+                                fixedDecimalScale
+                                {...form.getInputProps(`taxes_and_fees.${index}.amount`)}
+                                label={tax.name + ' ' + t`paid` + ' (' + event?.currency + ')'}
+                                placeholder="0.00"
+                                decimalScale={2}
+                                step={1}
+                                min={0}
+                            />
+                        )
+                    }
+                )}
+
+                <Switch
+                    mt={20}
+                    label={t`Send order confirmation and ticket email`}
+                    {...form.getInputProps('send_confirmation_email', {type: 'checkbox'})}
+                />
+                <ModalFooter>
+                    <Button variant="default" onClick={onClose}>{t`Cancel`}</Button>
+                    <Button type="submit" disabled={mutation.isPending}>
+                        {mutation.isPending ? t`Working` + '...' : t`Create Attendee`}
+                    </Button>
+                </ModalFooter>
+            </form>
+        </Modal>
+    );
+}

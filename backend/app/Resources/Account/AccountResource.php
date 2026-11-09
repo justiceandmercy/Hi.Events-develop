@@ -1,0 +1,33 @@
+<?php
+
+namespace HiEvents\Resources\Account;
+
+use HiEvents\DomainObjects\AccountDomainObject;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * @mixin AccountDomainObject
+ */
+class AccountResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->getId(),
+            'name' => $this->getName(),
+            'currency_code' => $this->getCurrencyCode(),
+            'timezone' => $this->getTimezone(),
+            'updated_at' => $this->getUpdatedAt(),
+            'require_two_factor_authentication' => $this->getRequireTwoFactorAuthentication(),
+
+            'is_account_email_confirmed' => $this->getAccountVerifiedAt() !== null,
+            'is_saas_mode_enabled' => config('app.saas_mode_enabled'),
+            'requires_manual_verification' => config('app.saas_mode_enabled') && ! $this->getIsManuallyVerified(),
+
+            'deletion_request' => $this->getActiveDeletionRequest()
+                ? new AccountDeletionRequestResource($this->getActiveDeletionRequest())
+                : null,
+        ];
+    }
+}

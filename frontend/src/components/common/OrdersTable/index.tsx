@@ -1,0 +1,438 @@
+import {t} from "@lingui/macro";
+import {useAccess} from "../../../hooks/useAccess.ts";
+import {Anchor, Button, Group, Menu, Popover, Text, Tooltip} from '@mantine/core';
+import {Event, IdParam, Invoice, Order} from "../../../types.ts";
+import {
+    IconAlertCircle,
+    IconCalendarEvent,
+    IconCash,
+    IconCashRegister,
+    IconCheck,
+    IconClock,
+    IconClockPause,
+    IconCashBanknote,
+    IconCopy,
+    IconCreditCard,
+    IconDotsVertical,
+    IconFileInvoice,
+    IconFileOff,
+    IconHelp,
+    IconSend,
+    IconTicket,
+    IconX
+} from "@tabler/icons-react";
+import {formatDateWithLocale, relativeDate} from "../../../utilites/dates.ts";
+import {ManageOrderModal} from "../../modals/ManageOrderModal";
+import {useClipboard, useDisclosure} from "@mantine/hooks";
+import {useMemo, useState} from "react";
+import {NoResultsSplash} from "../NoResultsSplash";
+import classes from "./OrdersTable.module.scss";
+import {formatNumber} from "../../../utilites/helpers.ts";
+import {useUrlHash} from "../../../hooks/useUrlHash.ts";
+import {useOrderActions} from "../../../hooks/useOrderActions.tsx";
+import {EntityActionMenuItems} from "../EntityActions";
+import {showSuccess} from "../../../utilites/notifications.tsx";
+import {TanStackTable, TanStackTableColumn} from "../TanStackTable";
+import {ColumnVisibilityToggle} from "../ColumnVisibilityToggle";
+import {CellContext} from "@tanstack/react-table";
+import {formatCurrency} from "../../../utilites/currency.ts";
+import {getBoxOfficeTenderLabel} from "../../../ee/box-office/utilites/boxOfficeTender.ts";
+import {WriteAccess} from "../WriteAccess";
+
+interface OrdersTableProps {
+    event: Event,
+    orders: Order[];
+    compact?: boolean;
+}
+
+export const OrdersTable = ({orders, event, compact}: OrdersTableProps) => {
+    const [isViewModalOpen, viewModal] = useDisclosure(false);
+    const [orderId, setOrderId] = useState<IdParam>();
+    const [emailPopoverId, setEmailPopoverId] = useState<IdParam | null>(null);
+    const clipboard = useClipboard({timeout: 2000});
+    const {getOrderActions, orderActionModals, openMessageModal, downloadInvoice} = useOrderActions({
+        eventId: event.id,
+        onManage: (order: Order) => handleModalClick(order.id, viewModal),
+    });
+
+    useUrlHash(/^#order-(\d+)$/, (matches => {
+        const orderId = matches![1];
+        setOrderId(orderId);
+        viewModal.open();
+    }));
+
+    const handleModalClick = (orderId: IdParam, modal: { open: () => void }) => {
+        setOrderId(orderId);
+        modal.open();
+    }
+
+    const handleCopyEmail = (email: string | null) => {
+        if (!email) {
+            return;
+        }
+        clipboard.copy(email);
+        showSuccess(t`Email address copied to clipboard`);
+        setEmailPopoverId(null);
+    };
+
+    const handleMessageFromEmail = (order: Order) => {
+        setEmailPopoverId(null);
+        openMessageModal(order);
+    };
+
+    const formatTime = (dateString: string): string => {
+        const date = new Date(dateString);
+        return date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+        });
+    };
+
+    const ActionMenu = ({order}: { order: Order }) => {
+        return (
+            <Group wrap={'nowrap'} gap={0} justify={'flex-end'}>
+                <Menu shadow="md" width={200}>
+                    <Menu.Target>
+                        <div className={classes.action}>
+                            <Button size={"xs"} variant={"transparent"} data-testid="order-actions-trigger">
+                                <IconDotsVertical/>
+                            </Button>
+                        </div>
+                    </Menu.Target>
+
+                    <Menu.Dropdown>
+                        <EntityActionMenuItems actions={getOrderActions(order)}/>
+                    </Menu.Dropdown>
+                </Menu>
+            </Group>
+        );
+    }
+
+    const canViewFinancials = useAccess().can('VIEW_FINANCIALS');
+    const columns = useMemo<TanStackTableColumn<Order>[]>(
+        () => [
+            {
+                id: 'customer',
+                header: t`Customer`,
+                enableHiding: false,
+                cell: (info: CellContext<Order, unknown>) => {
+                    const order = info.row.original;
+                    return (
+                        <div className={classes.customerDetails}>
+                            <div className={classes.nameRow}>
+                                <Anchor
+                                    onClick={() => handleModalClick(order.id, viewModal)}
+                                    className={classes.customerName}
+                                    style={{cursor: 'pointer'}}
+                                >
+                                    {order.first_name} {order.last_name}
+                                </Anchor>
+                                {order.company_name && (
+                                    <Text className={classes.companyName}>
+                                        {order.company_name}
+                                    </Text>
+                                )}
+                            </div>
+                            {!order.email && (
+                                <Text className={classes.customerEmail} c="dimmed">{t`No email provided`}</Text>
+                            )}
+                            {order.email && <Popover
+                                opened={emailPopoverId === order.id}
+                                onChange={(opened) => {
+                                    if (!opened) setEmailPopoverId(null);
+                                }}
+                                width={200}
+                                position="bottom"
+                                withArrow
+                                shadow="md"
+                            >
+                                <Popover.Target>
+                                    <Anchor
+                                        onClick={() => setEmailPopoverId(order.id)}
+                                        className={classes.customerEmail}
+                                        style={{cursor: 'pointer'}}
+                                    >
+                                        {order.email}
+                                    </Anchor>
+                                </Popover.Target>
+                                <Popover.Dropdown>
+                                    <Group gap="xs" style={{flexDirection: 'column', width: '100%'}}>
+                                        <WriteAccess>
+                                            <Button
+                                                fullWidth
+                                                variant="light"
+                                                leftSection={<IconSend size={16}/>}
+                                                onClick={() => handleMessageFromEmail(order)}
+                                            >
+                                                {t`Message`}
+                                            </Button>
+                                        </WriteAccess>
+                                        <Button
+                                            fullWidth
+                                            variant="light"
+                                            color="gray"
+                                            leftSection={<IconCopy size={16}/>}
+                                            onClick={() => handleCopyEmail(order.email)}
+                                        >
+                                            {t`Copy Email`}
+                                        </Button>
+                                    </Group>
+                                </Popover.Dropdown>
+                            </Popover>}
+                        </div>
+                    );
+                },
+                meta: {
+                    headerStyle: {minWidth: 280},
+                },
+            },
+            {
+                id: 'orderDetails',
+                header: t`Order Details`,
+                enableHiding: true,
+                cell: (info: CellContext<Order, unknown>) => {
+                    const order = info.row.original;
+                    const occurrence = order.order_items?.[0]?.event_occurrence;
+                    const operatorName = order.box_office_operator_name;
+                    return (
+                        <div className={classes.orderDetails}>
+                            <Anchor
+                                onClick={() => handleModalClick(order.id, viewModal)}
+                                className={classes.orderId}
+                                style={{cursor: 'pointer'}}
+                            >
+                                {order.public_id}
+                            </Anchor>
+                            {occurrence && event?.timezone && (
+                                <span className={classes.occurrenceChip}>
+                                    <IconCalendarEvent size={12}/>
+                                    {formatDateWithLocale(occurrence.start_date, 'shortDate', event.timezone)}
+                                    {' '}
+                                    {formatDateWithLocale(occurrence.start_date, 'timeOnly', event.timezone)}
+                                    {occurrence.label && ` · ${occurrence.label}`}
+                                </span>
+                            )}
+                            {order.box_office_id && (
+                                <span className={classes.occurrenceChip}>
+                                    <IconCashRegister size={12}/>
+                                    {t`Box office`}
+                                    {operatorName && ` · ${t`Sold by ${operatorName}`}`}
+                                </span>
+                            )}
+                            <div className={classes.orderMeta}>
+                                <Text className={classes.createdDate}>
+                                    {relativeDate(order.created_at)}
+                                </Text>
+                                {order.latest_invoice ? (
+                                    <Anchor
+                                        onClick={() => downloadInvoice(order.latest_invoice as Invoice)}
+                                        className={classes.invoiceLink}
+                                        style={{cursor: 'pointer'}}
+                                    >
+                                        <IconFileInvoice size={14}/>
+                                        {t`Invoice`} #{order.latest_invoice.invoice_number}
+                                    </Anchor>
+                                ) : (
+                                    <Text className={classes.noInvoice}>
+                                        <IconFileOff size={14}/>
+                                        {t`No invoice`}
+                                    </Text>
+                                )}
+                                {order.status === 'RESERVED' && order.reserved_until && (
+                                    <Text className={classes.reservedUntil}>
+                                        <IconClock size={14}/>
+                                        {t`Reserved until`} {formatTime(order.reserved_until)}
+                                    </Text>
+                                )}
+                            </div>
+                        </div>
+                    );
+                },
+            },
+            {
+                id: 'items',
+                header: t`Items`,
+                enableHiding: true,
+                cell: (info: CellContext<Order, unknown>) => {
+                    const order = info.row.original;
+                    const totalQuantity = order.order_items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
+                    const itemBreakdown = order.order_items?.map(item =>
+                        `${item.quantity}x ${item.item_name}`
+                    ).join('\n') || '';
+
+                    return (
+                        <Tooltip
+                            label={itemBreakdown}
+                            multiline
+                            withArrow
+                            disabled={!itemBreakdown}
+                        >
+                            <div className={classes.itemsBadge}>
+                                <IconTicket size={14}/>
+                                {formatNumber(totalQuantity)} {t`item(s)`}
+                            </div>
+                        </Tooltip>
+                    );
+                },
+            },
+            {
+                id: 'amount',
+                header: t`Amount`,
+                enableHiding: true,
+                cell: (info: CellContext<Order, unknown>) => {
+                    const order = info.row.original;
+                    return (
+                        <div className={classes.amountDetails}>
+                            <Text className={classes.amountGross}>
+                                {formatCurrency(order.total_gross, order.currency)}
+                            </Text>
+                            <Text className={classes.amountBreakdown}>
+                                {t`Tax`}: {formatCurrency(order.total_tax, order.currency)} •
+                                {' '}{t`Fees`}: {formatCurrency(order.total_fee, order.currency)}
+                            </Text>
+                            {order.refund_status && (
+                                <Text className={classes.refundedAmount} data-refund-status={order.refund_status}>
+                                    {order.refund_status === 'REFUNDED' && t`Refunded: ${formatCurrency(order.total_refunded, order.currency)}`}
+                                    {order.refund_status === 'PARTIALLY_REFUNDED' && t`Partially refunded: ${formatCurrency(order.total_refunded, order.currency)}`}
+                                    {order.refund_status === 'REFUND_PENDING' && t`Refund pending`}
+                                    {order.refund_status === 'REFUND_FAILED' && t`Refund failed`}
+                                </Text>
+                            )}
+                        </div>
+                    );
+                },
+            },
+            {
+                id: 'payment',
+                header: t`Payment`,
+                enableHiding: true,
+                cell: (info: CellContext<Order, unknown>) => {
+                    const order = info.row.original;
+                    const tenderLabel = getBoxOfficeTenderLabel(order.box_office_tender);
+                    return (
+                        <div className={classes.paymentStatus}>
+                            {tenderLabel ? (
+                                <>
+                                    {order.box_office_tender === 'CARD' ? <IconCreditCard size={16}/> : <IconCash size={16}/>}
+                                    <Text>{tenderLabel}</Text>
+                                </>
+                            ) : order.payment_provider === 'STRIPE' ? (
+                                <>
+                                    <IconCreditCard size={16}/>
+                                    <Text>{t`Stripe`}</Text>
+                                </>
+                            ) : order.payment_provider === 'OFFLINE' ? (
+                                <>
+                                    <IconCash size={16}/>
+                                    <Text>{t`Offline`}</Text>
+                                </>
+                            ) : (
+                                <>
+                                    <IconHelp size={16}/>
+                                    <Text>{t`Other`}</Text>
+                                </>
+                            )}
+                        </div>
+                    );
+                },
+            },
+            {
+                id: 'status',
+                header: t`Status`,
+                enableHiding: true,
+                cell: (info: CellContext<Order, unknown>) => {
+                    const order = info.row.original;
+                    return (
+                        <div
+                            className={classes.statusBadge}
+                            data-status={order.status === 'AWAITING_OFFLINE_PAYMENT' && order.offline_payment_reported_at ? 'PAYMENT_REPORTED' : order.status}
+                        >
+                            {order.status === 'COMPLETED' && (
+                                <>
+                                    <IconCheck size={14}/>
+                                    {t`Completed`}
+                                </>
+                            )}
+                            {order.status === 'RESERVED' && (
+                                <>
+                                    <IconClock size={14}/>
+                                    {t`Reserved`}
+                                </>
+                            )}
+                            {order.status === 'AWAITING_OFFLINE_PAYMENT' && !order.offline_payment_reported_at && (
+                                <>
+                                    <IconClockPause size={14}/>
+                                    {t`Awaiting Payment`}
+                                </>
+                            )}
+                            {order.status === 'AWAITING_OFFLINE_PAYMENT' && order.offline_payment_reported_at && (
+                                <>
+                                    <IconCashBanknote size={14}/>
+                                    {t`Payment reported`}
+                                </>
+                            )}
+                            {order.status === 'CANCELLED' && (
+                                <>
+                                    <IconX size={14}/>
+                                    {t`Cancelled`}
+                                </>
+                            )}
+                            {order.status === 'ABANDONED' && (
+                                <>
+                                    <IconAlertCircle size={14}/>
+                                    {t`Abandoned`}
+                                </>
+                            )}
+                        </div>
+                    );
+                },
+            },
+            {
+                id: 'actions',
+                header: t`Actions`,
+                enableHiding: false,
+                cell: (info: CellContext<Order, unknown>) => {
+                    const order = info.row.original;
+                    return (
+                        <div className={classes.actionsMenu}>
+                            <ActionMenu order={order}/>
+                        </div>
+                    );
+                },
+                meta: {
+                    sticky: 'right',
+                },
+            },
+        ].filter(column => canViewFinancials || column.id !== 'amount') as TanStackTableColumn<Order>[],
+        [event.id, emailPopoverId, canViewFinancials]
+    );
+
+    if (orders.length === 0) {
+        return <NoResultsSplash
+            imageHref={'/blank-slate/orders.svg'}
+            heading={t`No orders to show`}
+            subHeading={(
+                <p>
+                    {t`Your orders will appear here once they start rolling in.`}
+                </p>
+            )}
+        />
+    }
+
+    return (
+        <>
+            <TanStackTable
+                data={orders}
+                columns={columns}
+                storageKey="orders-table"
+                enableColumnVisibility={!compact}
+                renderColumnVisibilityToggle={!compact ? (table) => <ColumnVisibilityToggle table={table}/> : undefined}
+                hideHeader={compact}
+                noCard={compact}
+            />
+            {orderId && isViewModalOpen && <ManageOrderModal onClose={viewModal.close} orderId={orderId}/>}
+            {orderActionModals}
+        </>
+    )
+};

@@ -1,0 +1,44 @@
+<?php
+
+namespace HiEvents\Resources\CheckInList;
+
+use HiEvents\DomainObjects\CheckInListDomainObject;
+use HiEvents\Resources\EventOccurrence\EventOccurrenceResource;
+use HiEvents\Resources\Product\ProductResource;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * @mixin CheckInListDomainObject
+ */
+class CheckInListResource extends JsonResource
+{
+    public function toArray($request): array
+    {
+        return [
+            'id' => $this->getId(),
+            'name' => $this->getName(),
+            'description' => $this->getDescription(),
+            'expires_at' => $this->getExpiresAt(),
+            'activates_at' => $this->getActivatesAt(),
+            'short_id' => $this->getShortId(),
+            'is_system_default' => $this->getIsSystemDefault(),
+            'event_occurrence_id' => $this->getEventOccurrenceId(),
+            'total_attendees' => $this->getTotalAttendeesCount(),
+            'checked_in_attendees' => $this->getCheckedInCount(),
+            'public_show_attendee_notes' => $this->getPublicShowAttendeeNotes(),
+            'public_show_question_answers' => $this->getPublicShowQuestionAnswers(),
+            'public_show_order_details' => $this->getPublicShowOrderDetails(),
+            $this->mergeWhen($this->getEvent() !== null, fn () => [
+                'is_expired' => $this->isExpired($this->getEvent()->getTimezone()),
+                'is_active' => $this->isActivated($this->getEvent()->getTimezone()),
+            ]),
+            'event_occurrence' => $this->when(
+                ! is_null($this->getEventOccurrence()),
+                fn () => new EventOccurrenceResource($this->getEventOccurrence()),
+            ),
+            $this->mergeWhen($this->getProducts() !== null, fn () => [
+                'products' => ProductResource::collection($this->getProducts()),
+            ]),
+        ];
+    }
+}

@@ -1,0 +1,24 @@
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hi-color-text-muted);
+  margin: 24px 0 12px;
+}
+
+.sectionLabelRange {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--hi-color-text-muted);
+}
+
+.sectionLabelSpacer {
+  flex: 1;
+}

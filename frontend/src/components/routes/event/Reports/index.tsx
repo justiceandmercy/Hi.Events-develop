@@ -1,0 +1,79 @@
+import {PageTitle} from "../../../common/PageTitle";
+import {t} from "@lingui/macro";
+import {PageBody} from "../../../common/PageBody";
+import {IconArmchair, IconCalendarEvent, IconChartBar, IconChevronRight, IconReportMoney} from "@tabler/icons-react";
+import classes from './Reports.module.scss';
+import {Card} from "../../../common/Card";
+import {Avatar, UnstyledButton} from "@mantine/core";
+import {Link, useParams} from "react-router";
+import {EventType, ReportTypes} from "../../../../types.ts";
+import {useGetEvent} from "../../../../queries/useGetEvent.ts";
+import {RequirePermission} from "../../../common/WriteAccess";
+
+const Reports = () => {
+    const {eventId} = useParams();
+    const {data: event} = useGetEvent(eventId);
+
+    const reports = [
+        {
+            id: ReportTypes.ProductSales,
+            title: t`Product Sales`,
+            description: t`Product sales, revenue, and tax breakdown`,
+            icon: <Avatar size={40} color={'#831781'}><IconReportMoney/></Avatar>
+        },
+        {
+            id: ReportTypes.DailySales,
+            title: t`Daily Sales Report`,
+            description: t`Daily sales, tax, and fee breakdown`,
+            icon: <Avatar size={40} color={'#00a3e0'}><IconChartBar/></Avatar>
+        },
+        {
+            id: ReportTypes.PromoCodes,
+            title: t`Promo Codes Report`,
+            description: t`Promo code usage and discount breakdown`,
+            icon: <Avatar size={40} color={'#634fc0'}><IconReportMoney/></Avatar>
+        },
+        ...(event?.type === EventType.RECURRING ? [{
+            id: ReportTypes.OccurrenceSummary,
+            title: t`Occurrence Summary`,
+            description: t`Sales, attendance, and check-in breakdown per occurrence`,
+            icon: <Avatar size={40} color={'#e07000'}><IconCalendarEvent/></Avatar>
+        }] : []),
+        ...(event?.has_seat_map ? [{
+            id: ReportTypes.SeatingSales,
+            title: t`Seating Sales`,
+            description: t`Capacity, sold, held and free seats per price band and area, with revenue per band`,
+            icon: <Avatar size={40} color={'#2f9e44'}><IconArmchair/></Avatar>
+        }] : []),
+    ];
+
+    return (
+        <PageBody>
+            <PageTitle
+                subheading={t`Download sales, attendee, and financial reports for all completed orders.`}>
+                {t`Reports`}
+            </PageTitle>
+
+            <RequirePermission permission="VIEW_FINANCIALS" imageHref="/blank-slate/reports.svg">
+                {reports.map((report) => (
+                    <UnstyledButton component={Link} key={report.id} to={`/manage/event/${eventId}/report/${report.id}`}>
+                        <Card className={classes.reportType}>
+                            <div className={classes.icon}>
+                                {report.icon}
+                            </div>
+                            <div className={classes.content}>
+                                <h3>{report.title}</h3>
+                                <p>{report.description}</p>
+                            </div>
+                            <div className={classes.rightCaret}>
+                                <IconChevronRight/>
+                            </div>
+                        </Card>
+                    </UnstyledButton>
+                ))}
+            </RequirePermission>
+        </PageBody>
+    )
+}
+
+export default Reports;

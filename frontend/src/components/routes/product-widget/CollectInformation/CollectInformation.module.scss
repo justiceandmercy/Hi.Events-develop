@@ -1,0 +1,232 @@
+@use "../../../../styles/mixins";
+
+$font-display: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+$radius-sm: 10px;
+$transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+
+.waitlistBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  border-radius: $radius-sm;
+  background: var(--checkout-accent-soft);
+  border: 1px solid var(--checkout-accent-muted);
+}
+
+.waitlistBannerIcon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--checkout-accent);
+  color: var(--checkout-accent-contrast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.waitlistBannerTitle {
+  font-family: $font-display;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--checkout-text-primary);
+  margin: 0 0 4px 0;
+}
+
+.waitlistBannerText {
+  font-size: 13px;
+  color: var(--checkout-text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.sectionHeading {
+  font-family: $font-display;
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--checkout-text-primary, #111827);
+}
+
+.sectionHelper {
+  font-size: 14px;
+  color: var(--checkout-text-secondary, #6B7280);
+  margin-bottom: 20px;
+}
+
+.copyDetailsSection {
+  padding-top: 16px;
+  border-top: 1px solid var(--checkout-border, #F3F4F6);
+}
+
+.copyDetailsMultiple {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.copyLabel {
+  flex-shrink: 0;
+  color: var(--checkout-text-primary, #111827);
+}
+
+.ticketSection {
+  margin-bottom: 24px;
+}
+
+.ticketTypeHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  margin-top: 24px;
+
+  h3 {
+    font-family: $font-display;
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--checkout-text-primary, #111827);
+  }
+}
+
+.ticketCountBadge {
+  flex-shrink: 0;
+  white-space: nowrap;
+  color: var(--checkout-text-secondary, #6B7280);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.attendeeCard {
+  position: relative;
+}
+
+.attendeeCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.attendeeHeaderLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.attendeeNumber {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--checkout-accent-soft, var(--mantine-primary-color-light));
+  color: var(--checkout-accent, var(--mantine-primary-color-filled));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.attendeeInfo {
+  h4 {
+    margin: 0 0 2px 0;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--checkout-text-primary, #111827);
+  }
+}
+
+.attendeeTicketType {
+  font-size: 13px;
+  color: var(--checkout-text-secondary, #6B7280);
+}
+
+.copiedBadge {
+  color: var(--checkout-text-secondary, #6B7280);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.checkoutActions {
+  margin-top: 32px;
+  margin-bottom: 24px;
+}
+
+.continueButton {
+  width: 100%;
+  height: 48px;
+  border-radius: $radius-sm;
+  font-family: $font-display;
+  font-weight: 600;
+  font-size: 16px;
+  transition: transform $transition-fast, box-shadow $transition-fast;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px var(--checkout-accent-soft, rgba(0, 0, 0, 0.15));
+    filter: brightness(1.05);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+}
+
+.ineligibleHint {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ineligibleHintIcon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--mantine-color-red-6);
+}
+
+.ineligibleHintText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--checkout-text-primary, #1a1a1a);
+}
+
+.ineligibleHintAction {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--checkout-accent, var(--mantine-primary-color-filled));
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.tosNotice {
+  text-align: center;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--checkout-text-secondary, #6B7280);
+
+  a {
+    color: var(--checkout-accent, var(--mantine-primary-color-filled));
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}

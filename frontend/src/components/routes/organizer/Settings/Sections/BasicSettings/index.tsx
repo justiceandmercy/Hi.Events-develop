@@ -1,0 +1,169 @@
+import {useForm} from "@mantine/form";
+import {Button, Select, TextInput} from "@mantine/core";
+import {t} from "@lingui/macro";
+import {useEffect} from "react";
+import {useParams} from "react-router";
+import {showSuccess} from "../../../../../../utilites/notifications.tsx";
+import {useFormErrorResponseHandler} from "../../../../../../hooks/useFormErrorResponseHandler.tsx";
+import {Card} from "../../../../../common/Card";
+import {HeadingWithDescription} from "../../../../../common/Card/CardHeading";
+import {DayOfWeek} from "@mantine/dates";
+import {useGetOrganizer} from "../../../../../../queries/useGetOrganizer.ts";
+import {useGetOrganizerSettings} from "../../../../../../queries/useGetOrganizerSettings.ts";
+import {useUpdateOrganizerSettings} from "../../../../../../mutations/useUpdateOrganizerSettings.ts";
+import {InputGroup} from "../../../../../common/InputGroup";
+import {currencies} from "../../../../../../../data/currencies.ts";
+import {timezones} from "../../../../../../../data/timezones.ts";
+import {Editor} from "../../../../../common/Editor";
+import {useUpdateOrganizer} from "../../../../../../mutations/useUpdateOrganizer.ts";
+
+const Settings = () => {
+    const {organizerId} = useParams();
+    const {data: organizer} = useGetOrganizer(organizerId);
+    const {data: organizerSettings} = useGetOrganizerSettings(organizerId);
+    const organizerMutation = useUpdateOrganizer();
+    const settingsMutation = useUpdateOrganizerSettings();
+    const formErrorHandle = useFormErrorResponseHandler();
+    const isSaving = organizerMutation.isPending || settingsMutation.isPending;
+    const form = useForm({
+        initialValues: {
+            name: '',
+            email: '',
+            phone: '',
+            website: '',
+            description: '',
+            currency: '',
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            first_day_of_week: '1',
+        }
+    });
+
+    const daysOfWeek = [
+        {value: '1', label: t`Monday`},
+        {value: '2', label: t`Tuesday`},
+        {value: '3', label: t`Wednesday`},
+        {value: '4', label: t`Thursday`},
+        {value: '5', label: t`Friday`},
+        {value: '6', label: t`Saturday`},
+        {value: '0', label: t`Sunday`},
+    ];
+
+    const handleSubmit = ({first_day_of_week, ...organizerData}: typeof form.values) => {
+        Promise.all([
+            organizerMutation.mutateAsync({organizerId, organizerData}),
+            settingsMutation.mutateAsync({
+                organizerId,
+                organizerSettings: {first_day_of_week: Number(first_day_of_week) as DayOfWeek},
+            }),
+        ])
+            .then(() => showSuccess(t`Successfully Updated Organizer`))
+            .catch((error) => formErrorHandle(form, error));
+    }
+
+    useEffect(() => {
+        form.setValues({
+            name: String(organizer?.name),
+            email: String(organizer?.email),
+            currency: String(organizer?.currency),
+            timezone: String(organizer?.timezone),
+            phone: String(organizer?.phone || ''),
+            website: String(organizer?.website || ''),
+            description: String(organizer?.description || ''),
+        })
+    }, [organizer]);
+
+    useEffect(() => {
+        if (organizerSettings) {
+            form.setFieldValue('first_day_of_week', String(organizerSettings.first_day_of_week ?? 1));
+        }
+    }, [organizerSettings]);
+
+    return (
+        <Card>
+            <HeadingWithDescription
+                heading={t`Basic Information`}
+                description={t`General information about your organizer`}
+            />
+            <form onSubmit={form.onSubmit(handleSubmit)}>
+                <fieldset disabled={isSaving}>
+                    <InputGroup>
+                        <TextInput
+                            {...form.getInputProps('name')}
+                            required
+                            label={t`Organizer Name`}
+                            description={t`This is the name of your organizer that will be displayed to your users.`}
+                            placeholder={t`Awesome Organizer Ltd.`}
+                        />
+                        <TextInput
+                            {...form.getInputProps('email')}
+                            label={t`Email`}
+                            required
+                            description={t`This will be used for notifications and communication with your users.`}
+                            placeholder={t`hello@awesome-events.com`}
+                        />
+                    </InputGroup>
+
+                    <Editor
+                        label={t`Description`}
+                        value={form.values.description || ''}
+                        editorType={'simple'}
+                        description={t`A short description of your organizer that will be displayed to your users.`}
+                        onChange={(value) => form.setFieldValue('description', value)}
+                        maxLength={1000}
+                    />
+
+                    <InputGroup>
+                        <TextInput
+                            {...form.getInputProps('phone')}
+                            label={t`Phone`}
+                            placeholder={t`+1 234 567 890`}
+                        />
+                        <TextInput
+                            {...form.getInputProps('website')}
+                            label={t`Website`}
+                            type={'url'}
+                            placeholder={t`https://awesome-events.com`}
+                        />
+                    </InputGroup>
+                    <InputGroup>
+                        <Select
+                            {...form.getInputProps('currency')}
+                            searchable
+                            required
+                            data={Object.entries(currencies).map(([key, value]) => ({
+                                value: value,
+                                label: key,
+                            }))}
+                            label={t`Currency`}
+                            placeholder={t`EUR`}
+                            description={t`The default currency for your events.`}
+                        />
+                        <Select
+                            {...form.getInputProps('timezone')}
+                            searchable
+                            required
+                            data={timezones}
+                            label={t`Timezone`}
+                            placeholder={t`UTC`}
+                            description={t`The default timezone for your events.`}
+                        />
+                        <Select
+                            {...form.getInputProps('first_day_of_week')}
+                            required
+                            allowDeselect={false}
+                            data={daysOfWeek}
+                            label={t`First day of the week`}
+                            description={t`The day your calendars and date pickers start on.`}
+                        />
+                    </InputGroup>
+
+                    <Button loading={isSaving} type={'submit'}>
+                        {t`Save`}
+                    </Button>
+                </fieldset>
+            </form>
+        </Card>
+    );
+}
+
+export default Settings;

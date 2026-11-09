@@ -1,0 +1,65 @@
+<?php
+
+namespace HiEvents\Services\Domain\Report;
+
+use HiEvents\Repository\Interfaces\EventRepositoryInterface;
+use HiEvents\Services\Domain\Report\Concerns\BindsReportFilters;
+use Illuminate\Cache\Repository;
+use Illuminate\Database\DatabaseManager;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+
+abstract class AbstractReportService
+{
+    use BindsReportFilters;
+
+    public function __construct(
+        private readonly Repository $cache,
+        private readonly DatabaseManager $queryBuilder,
+        private readonly EventRepositoryInterface $eventRepository,
+    ) {}
+
+    public function generateReport(int $eventId, ?Carbon $startDate = null, ?Carbon $endDate = null, ?int $occurrenceId = null): Collection
+    {
+        $event = $this->eventRepository->findById($eventId);
+        $timezone = $event->getTimezone();
+
+        $endDate = $endDate
+            ? $endDate->copy()->setTimezone($timezone)->endOfDay()
+            : now($timezone)->endOfDay();
+
+        $startDate = $startDate
+            ? $startDate->copy()->setTimezone($timezone)->startOfDay()
+            : $endDate->copy()->subDays(30)->startOfDay();
+
+        $bindings = ['event_id' => $eventId];
+        if ($occurrenceId !== null) {
+            $bindings['occurrence_id'] = $occurrenceId;
+        }
+
+        $bindings = array_merge($bindings, $this->getAdditionalBindings($startDate, $endDate));
+
+        $reportResults = $this->cache->remember(
+            key: $this->getCacheKey($eventId, $startDate, $endDate, $occurrenceId),
+            ttl: Carbon::now()->addSeconds(20),
+            callback: fn () => $this->queryBuilder->select(
+                $this->getSqlQuery($startDate, $endDate, $occurrenceId),
+                $bindings,
+            )
+        );
+
+        return collect($reportResults);
+    }
+
+    abstract protected function getSqlQuery(Carbon $startDate, Carbon $endDate, ?int $occurrenceId = null): string;
+
+    protected function getAdditionalBindings(Carbon $startDate, Carbon $endDate): array
+    {
+        return [];
+    }
+
+    protected function getCacheKey(int $eventId, ?Carbon $startDate, ?Carbon $endDate, ?int $occurrenceId = null): string
+    {
+        return static::class."$eventId.{$startDate?->toDateString()}.{$endDate?->toDateString()}.{$occurrenceId}";
+    }
+}

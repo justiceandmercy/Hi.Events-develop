@@ -1,0 +1,236 @@
+<?php
+
+namespace HiEvents\Http\Request\EventSettings;
+
+use HiEvents\DomainObjects\Enums\AttendeeDetailsCollectionMethod;
+use HiEvents\DomainObjects\Enums\HomepageBackgroundType;
+use HiEvents\DomainObjects\Enums\HomepageFontFamily;
+use HiEvents\DomainObjects\Enums\HomepageLayout;
+use HiEvents\DomainObjects\Enums\HomepageSectionType;
+use HiEvents\DomainObjects\Enums\PaymentProviders;
+use HiEvents\DomainObjects\Enums\Permission;
+use HiEvents\DomainObjects\Enums\PriceDisplayMode;
+use HiEvents\DomainObjects\Enums\TicketDateDisplayMode;
+use HiEvents\DomainObjects\EventDomainObject;
+use HiEvents\Http\Request\BaseRequest;
+use HiEvents\Repository\Interfaces\EventRepositoryInterface;
+use HiEvents\Repository\Interfaces\EventSettingsRepositoryInterface;
+use HiEvents\Services\Domain\Auth\Access\AccountUserAccessService;
+use HiEvents\Services\Domain\Auth\AuthUserService;
+use HiEvents\Services\Infrastructure\HtmlPurifier\HtmlPurifierService;
+use HiEvents\Validators\Rules\HomepageSectionRules;
+use HiEvents\Validators\Rules\RulesHelper;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
+
+class UpdateEventSettingsRequest extends BaseRequest
+{
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                $refusal = $this->offlinePaymentInstructionsChangeRefusal();
+
+                if ($refusal !== null && $this->changesOfflinePaymentInstructions()) {
+                    $validator->errors()->add('offline_payment_instructions', $refusal);
+                }
+            },
+        ];
+    }
+
+    public function rules(): array
+    {
+        return [
+            'post_checkout_message' => ['string', 'nullable'],
+            'pre_checkout_message' => ['string', 'nullable'],
+            'email_footer_message' => ['string', 'nullable'],
+
+            'continue_button_text' => ['string', 'nullable', 'max:100'],
+            'get_tickets_button_text' => ['string', 'nullable', 'max:100'],
+            'support_email' => ['email', 'nullable'],
+            'require_attendee_details' => ['boolean'],
+            'attendee_details_collection_method' => [Rule::in(AttendeeDetailsCollectionMethod::valuesArray())],
+            'order_timeout_in_minutes' => ['numeric', 'min:1', 'max:120'],
+
+            'homepage_background_color' => ['nullable', ...RulesHelper::HEX_COLOR],
+            'homepage_primary_color' => ['nullable', ...RulesHelper::HEX_COLOR],
+            'homepage_primary_text_color' => ['nullable', ...RulesHelper::HEX_COLOR],
+            'homepage_secondary_color' => ['nullable', ...RulesHelper::HEX_COLOR],
+            'homepage_secondary_text_color' => ['nullable', ...RulesHelper::HEX_COLOR],
+            'homepage_body_background_color' => ['nullable', ...RulesHelper::HEX_COLOR],
+            'homepage_background_type' => ['nullable', Rule::in(HomepageBackgroundType::valuesArray())],
+
+            'website_url' => ['url', 'nullable'],
+            'maps_url' => ['url', 'nullable'],
+
+            'seo_title' => ['string', 'max:255', 'nullable'],
+            'seo_description' => ['string', 'max:255', 'nullable'],
+            'seo_keywords' => ['string', 'max:255', 'nullable'],
+            'allow_search_engine_indexing' => ['boolean'],
+
+            'notify_organizer_of_new_orders' => ['boolean'],
+
+            'price_display_mode' => [Rule::in(PriceDisplayMode::valuesArray())],
+
+            // Payment settings
+            'payment_providers' => ['array'],
+            'payment_providers.*' => ['string', Rule::in(PaymentProviders::valuesArray())],
+            'offline_payment_instructions' => ['string', 'nullable', Rule::requiredIf(fn () => in_array(PaymentProviders::OFFLINE->name, $this->input('payment_providers', []), true))],
+            'allow_orders_awaiting_offline_payment_to_check_in' => ['boolean'],
+            'offline_payment_reporting_enabled' => ['boolean'],
+            'offline_payment_order_reference_enabled' => ['boolean'],
+            'payment_links_enabled' => ['boolean'],
+            'payment_link_expiry_hours' => ['integer', 'min:1', 'max:720'],
+
+            // Invoice settings
+            'enable_invoicing' => ['boolean'],
+            'invoice_label' => ['nullable', 'string', 'max:50'],
+            'invoice_prefix' => ['nullable', 'string', 'max:10', 'regex:/^[A-Za-z0-9\-]*$/'],
+            'invoice_start_number' => ['nullable', 'integer', 'min:1'],
+            'require_billing_address' => ['boolean'],
+            'organization_name' => ['required_if:enable_invoicing,true', 'string', 'max:255', 'nullable'],
+            'organization_address' => ['required_if:enable_invoicing,true', 'string', 'max:255', 'nullable'],
+            'invoice_tax_details' => ['nullable', 'string'],
+            'invoice_notes' => ['nullable', 'string'],
+            'invoice_payment_terms_days' => ['nullable', 'integer', 'gte:0', 'lte:1000'],
+
+            // Ticket design settings
+            'ticket_design_settings' => ['nullable', 'array'],
+            'ticket_design_settings.accent_color' => ['nullable', 'string', ...RulesHelper::HEX_COLOR],
+            'ticket_design_settings.logo_image_id' => ['nullable', 'integer'],
+            'ticket_design_settings.footer_text' => ['nullable', 'string', 'max:500'],
+            'ticket_design_settings.layout_type' => ['nullable', 'string', Rule::in(['default', 'modern'])],
+            'ticket_design_settings.date_display_mode' => ['nullable', 'string', Rule::in(TicketDateDisplayMode::valuesArray())],
+            'ticket_design_settings.enabled' => ['boolean'],
+
+            // Marketing settings
+            'show_marketing_opt_in' => ['boolean'],
+
+            // Attendee detail copy control
+            'allow_copy_details_to_all_attendees' => ['boolean'],
+
+            // Platform fee settings
+            'pass_platform_fee_to_buyer' => ['boolean'],
+
+            // Homepage theme settings
+            'homepage_theme_settings' => ['nullable', 'array'],
+            'homepage_theme_settings.accent' => ['nullable', 'string', ...RulesHelper::HEX_COLOR],
+            'homepage_theme_settings.background' => ['nullable', 'string', ...RulesHelper::HEX_COLOR],
+            'homepage_theme_settings.mode' => ['nullable', 'string', Rule::in(['light', 'dark'])],
+            'homepage_theme_settings.background_type' => ['nullable', 'string', Rule::in(HomepageBackgroundType::valuesArray())],
+            'homepage_theme_settings.font_family' => ['nullable', 'string', Rule::in(HomepageFontFamily::valuesArray())],
+            'homepage_theme_settings.layout' => ['nullable', 'string', Rule::in(HomepageLayout::valuesArray())],
+            ...HomepageSectionRules::rules(HomepageSectionType::eventValues()),
+
+            // Self-service settings
+            'allow_attendee_self_edit' => ['boolean'],
+
+            // Occurrence display
+            'show_available_occurrence_capacity' => ['boolean'],
+            'hide_sold_out_occurrences' => ['boolean'],
+
+            // Waitlist settings
+            'waitlist_auto_process' => ['boolean'],
+            'waitlist_offer_timeout_minutes' => ['nullable', 'integer', 'min:1', 'max:10080'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        $colorMessage = __('Please enter a valid hex color code. In the format #000000 or #000.');
+
+        return [
+            'order_timeout_in_minutes.max' => __('The maximum timeout is 2 hours.'),
+            'homepage_background_color' => $colorMessage,
+            'homepage_text_color' => $colorMessage,
+            'homepage_button_color' => $colorMessage,
+            'homepage_link_color' => $colorMessage,
+            'homepage_product_widget_background_color' => $colorMessage,
+            'homepage_product_widget_text_color' => $colorMessage,
+            'price_display_mode.in' => 'The price display mode must be either inclusive or exclusive.',
+
+            // Payment messages
+            'payment_providers.*.in' => __('Invalid payment provider selected.'),
+            'offline_payment_instructions.required' => __('Payment instructions are required when offline payments are enabled.'),
+
+            // Invoice messages
+            'invoice_prefix.regex' => __('The invoice prefix may only contain letters, numbers, and hyphens.'),
+            'organization_name.required_if' => __('The organization name is required when invoicing is enabled.'),
+            'organization_address.required_if' => __('The organization address is required when invoicing is enabled.'),
+            'invoice_start_number.min' => __('The invoice start number must be at least 1.'),
+
+            // Ticket design messages
+            'ticket_design_settings.accent_color' => $colorMessage,
+            'ticket_design_settings.footer_text.max' => __('The footer text may not be greater than 500 characters.'),
+            'ticket_design_settings.layout_type.in' => __('The layout type must be default or modern.'),
+
+            // Homepage theme settings messages
+            'homepage_theme_settings.accent' => $colorMessage,
+            'homepage_theme_settings.background' => $colorMessage,
+            'homepage_theme_settings.mode.in' => __('The mode must be light or dark.'),
+            'homepage_theme_settings.background_type.in' => __('The background type must be COLOR or MIRROR_COVER_IMAGE.'),
+            'homepage_theme_settings.font_family.in' => __('The selected font is not supported.'),
+            'homepage_theme_settings.layout.in' => __('The selected layout is not supported.'),
+            ...HomepageSectionRules::messages(),
+        ];
+    }
+
+    private function offlinePaymentInstructionsChangeRefusal(): ?string
+    {
+        if (app(AuthUserService::class)->isApiKeyRequest()) {
+            return __('Offline payment instructions can only be changed from the dashboard, not with an API key.');
+        }
+
+        if (app(AccountUserAccessService::class)->isWithheldFromCurrentUser(Permission::MANAGE_PAYMENTS)) {
+            return __('Only members who can manage payments can change the offline payment instructions.');
+        }
+
+        return null;
+    }
+
+    private function changesOfflinePaymentInstructions(): bool
+    {
+        if (! $this->isMethod('PUT') && ! $this->exists('offline_payment_instructions')) {
+            return false;
+        }
+
+        $submitted = $this->input('offline_payment_instructions');
+
+        if ($submitted !== null && ! is_string($submitted)) {
+            return false;
+        }
+
+        $event = $this->eventTheMemberCanEdit();
+
+        if ($event === null) {
+            return false;
+        }
+
+        $saved = trim((string) app(EventSettingsRepositoryInterface::class)
+            ->findFirstWhere(['event_id' => $event->getId()])
+            ?->getOfflinePaymentInstructions());
+
+        if (blank($submitted)) {
+            return $saved !== '';
+        }
+
+        $submitted = trim($submitted);
+
+        return $submitted !== $saved
+            && trim(app(HtmlPurifierService::class)->purify($submitted)) !== $saved;
+    }
+
+    private function eventTheMemberCanEdit(): ?EventDomainObject
+    {
+        $event = app(EventRepositoryInterface::class)->findFirstWhere([
+            'id' => (int) $this->route('event_id'),
+            'account_id' => app(AuthUserService::class)->getAuthenticatedAccountId(),
+        ]);
+
+        if ($event === null || ! app(AccountUserAccessService::class)->currentMemberCanAccessEvent($event)) {
+            return null;
+        }
+
+        return $event;
+    }
+}

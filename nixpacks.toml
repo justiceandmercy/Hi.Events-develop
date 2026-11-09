@@ -1,0 +1,10 @@
+[build]
+  dockerfile = "Dockerfile.all-in-one"
+
+[variables]
+  APP_ENV = "production"
+  APP_DEBUG = "false"
+  LOG_CHANNEL = "stack"
+  QUEUE_CONNECTION = "redis"
+  CACHE_DRIVER = "redis"
+  SESSION_DRIVER = "redis"

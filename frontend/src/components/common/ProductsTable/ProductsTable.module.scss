@@ -1,0 +1,499 @@
+$card-radius: var(--hi-radius-lg, 10px);
+$card-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+$transition-fast: 120ms ease;
+
+$color-text-primary: #1f2937;
+$color-text-secondary: var(--hi-color-text-muted);
+$color-text-muted: var(--hi-color-text-tertiary);
+$color-border: #e5e7eb;
+$color-hairline: #f0eef3;
+$color-row-hover: color-mix(in srgb, var(--mantine-color-primary-0) 45%, #ffffff);
+$color-header-bg: #fcfbfd;
+
+$wide-row: 840px;
+
+.sortableCategory {
+  margin-bottom: 24px;
+  border-radius: $card-radius;
+  padding: var(--hi-spacing-lg);
+  box-shadow: $card-shadow;
+  border: 1px solid $color-border;
+  background-color: #ffffff;
+  overflow: hidden;
+  container-type: inline-size;
+}
+
+.categoryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 12px;
+}
+
+.categoryActions {
+  display: flex;
+  gap: 8px;
+
+  @container (max-width: 420px) {
+    display: none;
+  }
+}
+
+.categoryMenu {
+  display: none;
+
+  @container (max-width: 420px) {
+    display: flex;
+  }
+}
+
+.actionCell .menuButton,
+.categoryMenu .menuButton {
+  --ai-size: 32px;
+
+  @media (hover: none) {
+    --ai-size: 40px;
+  }
+}
+
+.touchOnly {
+  @media (hover: hover) {
+    display: none;
+  }
+}
+
+.categoryAction {
+  margin-left: auto;
+}
+
+.categoryTitle {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  color: $color-text-primary;
+}
+
+.categoryContent {
+  min-height: 50px;
+}
+
+.productList {
+  container-type: inline-size;
+  margin: 0 calc(-1 * var(--hi-spacing-lg)) calc(-1 * var(--hi-spacing-lg));
+  border-top: 1px solid $color-hairline;
+}
+
+%rowGrid {
+  display: grid;
+  grid-template-columns: 32px minmax(200px, 1fr) minmax(88px, 140px) minmax(100px, 150px) minmax(120px, 180px) 96px 36px;
+  grid-template-areas: "sort main price sales period status action";
+  column-gap: 14px;
+  align-items: center;
+}
+
+.productListHeader {
+  @extend %rowGrid;
+  padding: 8px 12px 8px 8px;
+  background-color: $color-header-bg;
+  border-bottom: 1px solid $color-hairline;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: $color-text-muted;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    display: none;
+  }
+}
+
+.headerMain {
+  grid-area: main;
+}
+
+.headerPrice {
+  grid-area: price;
+  text-align: right;
+}
+
+.headerSales {
+  grid-area: sales;
+  text-align: right;
+}
+
+.headerPeriod {
+  grid-area: period;
+}
+
+.headerStatus {
+  grid-area: status;
+}
+
+.productRow {
+  @extend %rowGrid;
+  position: relative;
+  padding: 12px 12px 12px 8px;
+  border-bottom: 1px solid $color-hairline;
+  cursor: pointer;
+  transition: background-color $transition-fast;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background-color: $color-row-hover;
+
+    .titleButton {
+      color: var(--mantine-color-primary-7);
+    }
+  }
+
+  @container (max-width: #{$wide-row - 1px}) {
+    grid-template-columns: 28px minmax(0, 1fr) 36px;
+    grid-template-areas:
+      "sort main action"
+      "sort stats stats";
+    column-gap: 10px;
+    row-gap: 8px;
+    padding: 12px 10px 12px 6px;
+
+    @media (hover: none) {
+      grid-template-columns: minmax(0, 1fr) 40px;
+      grid-template-areas:
+        "main action"
+        "stats stats";
+      padding: 12px 8px 12px 16px;
+    }
+  }
+
+  &.soldOut {
+    .titleButton,
+    .priceAmount {
+      color: $color-text-secondary;
+    }
+  }
+}
+
+.sortControls {
+  grid-area: sort;
+  display: flex;
+  justify-content: center;
+  transition: opacity $transition-fast;
+
+  @media (hover: hover) {
+    opacity: 0;
+
+    .productRow:hover &,
+    .productRow:focus-within & {
+      opacity: 1;
+    }
+  }
+
+  @container (max-width: #{$wide-row - 1px}) {
+    @media (hover: none) {
+      display: none;
+    }
+  }
+}
+
+.productMain {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.titleLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.typeIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: $color-text-muted;
+}
+
+.productTitle {
+  margin: 0;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.titleButton {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: $color-text-primary;
+  text-align: left;
+  cursor: pointer;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  transition: color $transition-fast;
+
+  &:focus-visible {
+    outline: 2px solid var(--mantine-color-primary-5);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+}
+
+.metaChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.metaChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 6px;
+  border-radius: 6px;
+  background-color: #f3f2f5;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+
+  svg {
+    flex-shrink: 0;
+    color: var(--chip-icon-color);
+  }
+}
+
+.productStats {
+  display: contents;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    grid-area: stats;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px 16px;
+    min-width: 0;
+
+    &::before {
+      content: '';
+      order: 2;
+      flex-basis: 100%;
+      height: 0;
+    }
+  }
+}
+
+.statusCell {
+  grid-area: status;
+  order: 0;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: $color-text-primary;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background-color: var(--status-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-color) 18%, transparent);
+}
+
+.priceCell {
+  grid-area: price;
+  order: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+  text-align: right;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+    text-align: left;
+  }
+}
+
+.priceAmount {
+  font-size: 14px;
+  font-weight: 600;
+  color: $color-text-primary;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.freePrice {
+  color: var(--hi-color-success);
+}
+
+.taxIndicator {
+  font-size: 12px;
+  color: $color-text-secondary;
+  border-bottom: 1px dotted $color-text-muted;
+  cursor: help;
+  white-space: nowrap;
+}
+
+.salesCell {
+  grid-area: sales;
+  order: 3;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+  text-align: right;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    justify-content: flex-start;
+    align-items: center;
+    gap: 6px;
+    text-align: left;
+  }
+}
+
+.inlineLabel {
+  display: none;
+  font-size: 13px;
+  color: $color-text-secondary;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    display: inline;
+  }
+}
+
+.salesWithProgress {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  width: 100%;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+  }
+}
+
+.salesCount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 14px;
+  font-weight: 600;
+  color: $color-text-primary;
+  font-variant-numeric: tabular-nums;
+
+  .salesWithProgress & {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 3px;
+  }
+
+  @container (max-width: #{$wide-row - 1px}) {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+}
+
+.salesTotal {
+  font-weight: 400;
+  color: $color-text-secondary;
+}
+
+.salesMeta {
+  font-size: 12px;
+  font-weight: 400;
+  color: $color-text-secondary;
+  white-space: nowrap;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    font-size: 13px;
+
+    &::before {
+      content: '·';
+      margin-right: 6px;
+    }
+  }
+}
+
+.salesProgress {
+  width: 100%;
+  max-width: 120px;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    width: 56px;
+  }
+}
+
+.lowStock {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mantine-color-orange-7);
+  white-space: nowrap;
+}
+
+.periodCell {
+  grid-area: period;
+  order: 4;
+  min-width: 0;
+  font-size: 13px;
+  color: $color-text-primary;
+}
+
+.periodText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.periodDate {
+  font-size: 12px;
+  color: $color-text-secondary;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    display: none;
+  }
+}
+
+.periodMuted {
+  color: $color-text-secondary;
+}
+
+.actionCell {
+  grid-area: action;
+  display: flex;
+  justify-content: flex-end;
+  align-self: center;
+
+  @container (max-width: #{$wide-row - 1px}) {
+    align-self: start;
+  }
+}

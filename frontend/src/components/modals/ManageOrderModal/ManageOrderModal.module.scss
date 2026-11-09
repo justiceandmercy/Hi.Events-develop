@@ -1,0 +1,29 @@
+@use "../../../styles/mixins";
+
+.reference {
+    font-family: var(--mantine-font-family-monospace);
+    letter-spacing: 0;
+}
+
+.separator {
+    color: var(--mantine-color-gray-4);
+}
+
+.separator,
+.email {
+    @include mixins.respond-below(sm) {
+        display: none;
+    }
+}
+
+.actions {
+    padding-top: var(--mantine-spacing-md);
+}
+
+.form {
+    padding-top: var(--mantine-spacing-lg);
+}
+
+.notes {
+    white-space: pre-line;
+}

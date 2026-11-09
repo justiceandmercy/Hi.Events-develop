@@ -1,0 +1,183 @@
+import {useEffect, useState} from "react";
+import {PaymentElement, useElements, useStripe} from "@stripe/react-stripe-js";
+import {useNavigate, useParams} from "react-router";
+import * as stripeJs from "@stripe/stripe-js";
+import {Alert, Skeleton} from "@mantine/core";
+import {t} from "@lingui/macro";
+import classes from './StripeCheckoutForm.module.scss';
+import {LoadingMask} from "../../common/LoadingMask";
+import {useGetOrderPublic} from "../../../queries/useGetOrderPublic.ts";
+import {CheckoutContent} from "../../layouts/Checkout/CheckoutContent";
+import {HomepageInfoMessage} from "../../common/HomepageInfoMessage";
+import {eventCheckoutPath, eventHomepagePath} from "../../../utilites/urlHelper.ts";
+import {Event} from "../../../types.ts";
+import {getEmbedParentUrl} from "../../../utilites/iframeResize.ts";
+import {getCheckoutSessionIdentifier} from "../../../utilites/checkoutSession.ts";
+
+const buildReturnUrl = (eventId: string, orderShortId: string, sessionId: string | null): string => {
+    const parentUrl = getEmbedParentUrl();
+
+    if (parentUrl) {
+        try {
+            const url = new URL(parentUrl);
+            if (url.protocol === 'https:' || url.protocol === 'http:') {
+                url.searchParams.set('hievents_event', eventId);
+                url.searchParams.set('hievents_order', orderShortId);
+                if (sessionId) {
+                    url.searchParams.set('hievents_session', sessionId);
+                }
+                return url.toString();
+            }
+        } catch (e) {
+            return window.location.origin + `/checkout/${eventId}/${orderShortId}/payment_return`
+                + (sessionId ? `?session_identifier=${sessionId}` : '');
+        }
+    }
+
+    const fallback = window.location.origin + `/checkout/${eventId}/${orderShortId}/payment_return`;
+    return sessionId ? `${fallback}?session_identifier=${sessionId}` : fallback;
+};
+
+export default function StripeCheckoutForm({setSubmitHandler}: {
+    setSubmitHandler: (submitHandler: () => () => Promise<void>) => void
+}) {
+    const {eventId, orderShortId} = useParams();
+    const stripe = useStripe();
+    const elements = useElements();
+    const navigate = useNavigate();
+    const [message, setMessage] = useState<string | undefined>('');
+    const [isPaymentElementReady, setIsPaymentElementReady] = useState(false);
+    const {data: order, isFetched: isOrderFetched} = useGetOrderPublic(eventId, orderShortId, ['event']);
+    const event = order?.event;
+
+    const handleSubmit = async () => {
+        if (!stripe || !elements) {
+            return;
+        }
+
+        const sessionId = getCheckoutSessionIdentifier(String(orderShortId));
+
+        const {error} = await stripe.confirmPayment({
+            elements,
+            confirmParams: {
+                return_url: buildReturnUrl(String(eventId), String(orderShortId), sessionId)
+            },
+            redirect: 'if_required',
+        });
+
+        if (error) {
+            if (error.type === "card_error" || error.type === "validation_error") {
+                setMessage(error.message);
+            } else {
+                setMessage(t`An unexpected error occurred.`);
+            }
+            return;
+        }
+
+        navigate(eventCheckoutPath(eventId, orderShortId, 'payment_return')
+            + (sessionId ? `?session_identifier=${sessionId}` : ''));
+    };
+
+    useEffect(() => {
+        if (!stripe) {
+            return;
+        }
+
+        const clientSecret = new URLSearchParams(window?.location.search).get(
+            "payment_intent_client_secret"
+        );
+
+        if (!clientSecret) {
+            return;
+        }
+
+        stripe.retrievePaymentIntent(clientSecret).then(({paymentIntent}) => {
+            switch (paymentIntent?.status) {
+                case "succeeded":
+                    setMessage(t`Payment succeeded!`);
+                    break;
+                case "processing":
+                    setMessage(t`Your payment is processing.`);
+                    break;
+                case "requires_payment_method":
+                    setMessage(t`Your payment was not successful, please try again.`);
+                    break;
+                default:
+                    setMessage(t`Something went wrong.`);
+                    break;
+            }
+        });
+    }, [stripe]);
+
+    useEffect(() => {
+        if (setSubmitHandler) {
+            setSubmitHandler(() => handleSubmit);
+        }
+
+    }, [setSubmitHandler, stripe, elements]);
+
+    if (!isOrderFetched || !order?.payment_status) {
+        return (
+            <CheckoutContent>
+                <Skeleton height={300} mb={20}/>
+            </CheckoutContent>
+        );
+    }
+
+    if (order?.payment_status === 'PAYMENT_RECEIVED') {
+        return (
+            <HomepageInfoMessage
+                status="success"
+                message={t`Payment received`}
+                subtitle={t`This order has already been paid.`}
+                linkText={t`View Order Details`}
+                link={eventCheckoutPath(eventId, orderShortId, 'summary')}
+            />
+        );
+    }
+
+    if (order?.payment_status !== 'AWAITING_PAYMENT' && order?.payment_status !== 'PAYMENT_FAILED') {
+        return (
+            <HomepageInfoMessage
+                status="expired"
+                message={t`Page no longer available`}
+                subtitle={t`This order page is no longer available.`}
+                linkText={t`Back to Event`}
+                link={eventHomepagePath(event as Event)}
+            />
+        );
+    }
+
+    const paymentElementOptions: stripeJs.StripePaymentElementOptions = {
+        layout: {
+            type: "accordion",
+            defaultCollapsed: false,
+            radios: false,
+            spacedAccordionItems: false,
+        },
+        defaultValues: {
+            billingDetails: {
+                name: [order.first_name, order.last_name].filter(Boolean).join(' ') || undefined,
+            },
+        },
+    };
+
+    return (
+        <form id="payment-form">
+            <>
+                {(order?.payment_status === 'PAYMENT_FAILED' || window?.location.search.includes('payment_failed')) && (
+                    <Alert mb={20} color={'red'}>{t`Your payment was unsuccessful. Please try again.`}</Alert>
+                )}
+
+                {message !== '' && <Alert mb={20}>{message}</Alert>}
+                <LoadingMask/>
+                <PaymentElement
+                    className={isPaymentElementReady ? undefined : classes.stripeForElement}
+                    id="payment-element"
+                    options={paymentElementOptions}
+                    onReady={() => setIsPaymentElementReady(true)}
+                />
+            </>
+        </form>
+    );
+}

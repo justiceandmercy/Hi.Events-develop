@@ -1,0 +1,258 @@
+<?php
+
+namespace Tests\Unit\Services\Application\Handlers\EventSettings;
+
+use HiEvents\DomainObjects\Enums\CapacityChangeDirection;
+use HiEvents\DomainObjects\EventSettingDomainObject;
+use HiEvents\Events\CapacityChangedEvent;
+use HiEvents\Repository\Interfaces\EventSettingsRepositoryInterface;
+use HiEvents\Services\Application\Handlers\EventSettings\DTO\UpdateEventSettingsDTO;
+use HiEvents\Services\Application\Handlers\EventSettings\UpdateEventSettingsHandler;
+use HiEvents\Services\Domain\Event\EventSpamCheckDispatchService;
+use HiEvents\Services\Domain\Event\HomepageSectionsSanitizer;
+use HiEvents\Services\Infrastructure\HtmlPurifier\HtmlPurifierService;
+use Illuminate\Database\DatabaseManager;
+use Illuminate\Support\Facades\Event;
+use Mockery;
+use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use Tests\TestCase;
+
+class UpdateEventSettingsHandlerTest extends TestCase
+{
+    use MockeryPHPUnitIntegration;
+
+    private EventSettingsRepositoryInterface $eventSettingsRepository;
+
+    private HtmlPurifierService $purifier;
+
+    private DatabaseManager $databaseManager;
+
+    private UpdateEventSettingsHandler $handler;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->eventSettingsRepository = Mockery::mock(EventSettingsRepositoryInterface::class);
+        $this->purifier = Mockery::mock(HtmlPurifierService::class);
+        $this->databaseManager = Mockery::mock(DatabaseManager::class);
+
+        $this->purifier->shouldReceive('purify')->andReturnUsing(fn ($v) => $v);
+
+        $this->databaseManager
+            ->shouldReceive('transaction')
+            ->andReturnUsing(fn ($callback) => $callback());
+
+        $this->handler = new UpdateEventSettingsHandler(
+            eventSettingsRepository: $this->eventSettingsRepository,
+            purifier: $this->purifier,
+            databaseManager: $this->databaseManager,
+            eventSpamCheckDispatchService: Mockery::mock(EventSpamCheckDispatchService::class)->shouldIgnoreMissing(),
+            homepageSectionsSanitizer: Mockery::mock(HomepageSectionsSanitizer::class),
+        );
+    }
+
+    public function test_dispatches_capacity_event_when_auto_process_toggled_on(): void
+    {
+        Event::fake();
+
+        $existingSettings = new EventSettingDomainObject;
+        $existingSettings->setWaitlistAutoProcess(false);
+
+        $this->eventSettingsRepository
+            ->shouldReceive('findFirstWhere')
+            ->with(['event_id' => 1])
+            ->twice()
+            ->andReturn($existingSettings);
+
+        $this->eventSettingsRepository
+            ->shouldReceive('updateWhere')
+            ->once();
+
+        $dto = $this->createDTO(waitlist_auto_process: true);
+        $this->handler->handle($dto);
+
+        Event::assertDispatched(CapacityChangedEvent::class, function ($event) {
+            return $event->eventId === 1
+                && $event->productId === null
+                && $event->direction === CapacityChangeDirection::INCREASED;
+        });
+    }
+
+    public function test_does_not_dispatch_event_when_auto_process_already_enabled(): void
+    {
+        Event::fake();
+
+        $existingSettings = new EventSettingDomainObject;
+        $existingSettings->setWaitlistAutoProcess(true);
+
+        $this->eventSettingsRepository
+            ->shouldReceive('findFirstWhere')
+            ->with(['event_id' => 1])
+            ->twice()
+            ->andReturn($existingSettings);
+
+        $this->eventSettingsRepository
+            ->shouldReceive('updateWhere')
+            ->once();
+
+        $dto = $this->createDTO(waitlist_auto_process: true);
+        $this->handler->handle($dto);
+
+        Event::assertNotDispatched(CapacityChangedEvent::class);
+    }
+
+    public function test_does_not_dispatch_event_when_auto_process_disabled(): void
+    {
+        Event::fake();
+
+        $existingSettings = new EventSettingDomainObject;
+        $existingSettings->setWaitlistAutoProcess(true);
+
+        $this->eventSettingsRepository
+            ->shouldReceive('findFirstWhere')
+            ->with(['event_id' => 1])
+            ->twice()
+            ->andReturn($existingSettings);
+
+        $this->eventSettingsRepository
+            ->shouldReceive('updateWhere')
+            ->once();
+
+        $dto = $this->createDTO(waitlist_auto_process: false);
+        $this->handler->handle($dto);
+
+        Event::assertNotDispatched(CapacityChangedEvent::class);
+    }
+
+    public function test_persists_allow_copy_details_to_all_attendees(): void
+    {
+        Event::fake();
+
+        $existingSettings = new EventSettingDomainObject;
+
+        $this->eventSettingsRepository
+            ->shouldReceive('findFirstWhere')
+            ->with(['event_id' => 1])
+            ->twice()
+            ->andReturn($existingSettings);
+
+        $captured = null;
+        $this->eventSettingsRepository
+            ->shouldReceive('updateWhere')
+            ->once()
+            ->andReturnUsing(function (...$args) use (&$captured) {
+                foreach ($args as $arg) {
+                    if (is_array($arg) && array_key_exists('allow_copy_details_to_all_attendees', $arg)) {
+                        $captured = $arg['allow_copy_details_to_all_attendees'];
+                    }
+                }
+
+                return 1;
+            });
+
+        $this->handler->handle($this->createDTO(allow_copy_details_to_all_attendees: false));
+
+        $this->assertFalse(
+            $captured,
+            'Expected allow_copy_details_to_all_attendees=false to be persisted via updateWhere'
+        );
+    }
+
+    public function test_persists_trimmed_get_tickets_button_text(): void
+    {
+        Event::fake();
+
+        $existingSettings = new EventSettingDomainObject;
+
+        $this->eventSettingsRepository
+            ->shouldReceive('findFirstWhere')
+            ->with(['event_id' => 1])
+            ->twice()
+            ->andReturn($existingSettings);
+
+        $captured = ['missing'];
+        $this->eventSettingsRepository
+            ->shouldReceive('updateWhere')
+            ->once()
+            ->andReturnUsing(function (...$args) use (&$captured) {
+                foreach ($args as $arg) {
+                    if (is_array($arg) && array_key_exists('get_tickets_button_text', $arg)) {
+                        $captured = [$arg['get_tickets_button_text']];
+                    }
+                }
+
+                return 1;
+            });
+
+        $this->handler->handle($this->createDTO(get_tickets_button_text: '  Grab a spot  '));
+
+        $this->assertSame(['Grab a spot'], $captured);
+    }
+
+    public function test_persists_null_get_tickets_button_text(): void
+    {
+        Event::fake();
+
+        $existingSettings = new EventSettingDomainObject;
+
+        $this->eventSettingsRepository
+            ->shouldReceive('findFirstWhere')
+            ->with(['event_id' => 1])
+            ->twice()
+            ->andReturn($existingSettings);
+
+        $captured = ['missing'];
+        $this->eventSettingsRepository
+            ->shouldReceive('updateWhere')
+            ->once()
+            ->andReturnUsing(function (...$args) use (&$captured) {
+                foreach ($args as $arg) {
+                    if (is_array($arg) && array_key_exists('get_tickets_button_text', $arg)) {
+                        $captured = [$arg['get_tickets_button_text']];
+                    }
+                }
+
+                return 1;
+            });
+
+        $this->handler->handle($this->createDTO());
+
+        $this->assertSame([null], $captured);
+    }
+
+    private function createDTO(
+        ?bool $waitlist_auto_process = null,
+        bool $allow_copy_details_to_all_attendees = true,
+        ?string $get_tickets_button_text = null,
+    ): UpdateEventSettingsDTO {
+        return UpdateEventSettingsDTO::fromArray([
+            'account_id' => 1,
+            'event_id' => 1,
+            'post_checkout_message' => null,
+            'pre_checkout_message' => null,
+            'email_footer_message' => null,
+            'continue_button_text' => 'Continue',
+            'get_tickets_button_text' => $get_tickets_button_text,
+            'support_email' => 'test@test.com',
+            'homepage_background_color' => '#ffffff',
+            'homepage_primary_color' => '#000000',
+            'homepage_primary_text_color' => '#000000',
+            'homepage_secondary_color' => '#000000',
+            'homepage_secondary_text_color' => '#ffffff',
+            'homepage_body_background_color' => '#ffffff',
+            'homepage_background_type' => 'COLOR',
+            'require_attendee_details' => false,
+            'attendee_details_collection_method' => 'PER_TICKET',
+            'order_timeout_in_minutes' => 15,
+            'website_url' => null,
+            'maps_url' => null,
+            'seo_title' => null,
+            'seo_description' => null,
+            'seo_keywords' => null,
+            'allow_copy_details_to_all_attendees' => $allow_copy_details_to_all_attendees,
+            'waitlist_auto_process' => $waitlist_auto_process,
+            'waitlist_offer_timeout_minutes' => 60,
+        ]);
+    }
+}

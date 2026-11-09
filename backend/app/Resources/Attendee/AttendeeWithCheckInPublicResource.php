@@ -1,0 +1,38 @@
+<?php
+
+namespace HiEvents\Resources\Attendee;
+
+use HiEvents\DomainObjects\AttendeeDomainObject;
+use HiEvents\Resources\CheckInList\AttendeeCheckInPublicResource;
+use HiEvents\Resources\EventOccurrence\EventOccurrenceResourcePublic;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * @mixin AttendeeDomainObject
+ */
+class AttendeeWithCheckInPublicResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->getId(),
+            'first_name' => $this->getFirstName(),
+            'last_name' => $this->getLastName(),
+            'public_id' => $this->getPublicId(),
+            'seat_label' => $this->getSeatLabel(),
+            'product_id' => $this->getProductId(),
+            'product_price_id' => $this->getProductPriceId(),
+            'status' => $this->getStatus(),
+            'locale' => $this->getLocale(),
+            'order_id' => $this->getOrderId(),
+            'event_occurrence_id' => $this->getEventOccurrenceId(),
+            'event_occurrence' => $this->getEventOccurrence()
+                ? (new EventOccurrenceResourcePublic($this->getEventOccurrence()))->toArray($request)
+                : null,
+            $this->mergeWhen($this->getCheckIn() !== null, [
+                'check_in' => new AttendeeCheckInPublicResource($this->getCheckIn()),
+            ]),
+        ];
+    }
+}

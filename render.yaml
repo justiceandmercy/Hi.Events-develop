@@ -1,0 +1,102 @@
+services:
+  # Main web service
+  - type: web
+    name: hi-events
+    runtime: docker
+    dockerfilePath: ./Dockerfile.all-in-one
+    branch: main
+    repo: https://github.com/justiceandmercy/Hi.Events-develop
+    region: oregon
+    plan: free
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_URL
+        value: https://hi-events.onrender.com
+      - key: APP_FRONTEND_URL
+        value: https://idyllic-palmier-6e8eb1.netlify.app
+      - key: QUEUE_CONNECTION
+        value: redis
+      - key: CACHE_DRIVER
+        value: redis
+      - key: SESSION_DRIVER
+        value: redis
+      - key: MAIL_MAILER
+        value: log
+      - key: SSO_GOOGLE_CLIENT_ID
+        sync: false
+      - key: SSO_GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: APP_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - fromDatabase:
+          name: hi-events-db
+          property: connectionString
+        key: DATABASE_URL
+      - fromService:
+          type: redis
+          name: hi-events-redis
+          property: connectionString
+        key: REDIS_URL
+
+  # Worker service
+  - type: worker
+    name: hi-events-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile.all-in-one
+    branch: main
+    repo: https://github.com/justiceandmercy/Hi.Events-develop
+    region: oregon
+    plan: free
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_URL
+        value: https://hi-events.onrender.com
+      - key: APP_FRONTEND_URL
+        value: https://idyllic-palmier-6e8eb1.netlify.app
+      - key: QUEUE_CONNECTION
+        value: redis
+      - key: CACHE_DRIVER
+        value: redis
+      - key: SESSION_DRIVER
+        value: redis
+      - key: MAIL_MAILER
+        value: log
+      - key: SSO_GOOGLE_CLIENT_ID
+        sync: false
+      - key: SSO_GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: APP_KEY
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - fromDatabase:
+          name: hi-events-db
+          property: connectionString
+        key: DATABASE_URL
+      - fromService:
+          type: redis
+          name: hi-events-redis
+          property: connectionString
+        key: REDIS_URL
+
+  # Redis service
+  - type: redis
+    name: hi-events-redis
+    region: oregon
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: hi-events-db
+    databaseName: hi_events
+    user: hi_events
+    region: oregon
+    plan: free

@@ -1,0 +1,117 @@
+import {CheckInList, CheckInListRequest, EventType, GenericModalProps, ProductCategory} from "../../../types.ts";
+import {Modal, ModalFooter} from "../../common/Modal";
+import {t} from "@lingui/macro";
+import {CheckInListForm} from "../../forms/CheckInListForm";
+import {useForm} from "@mantine/form";
+import {Button} from "@mantine/core";
+import {useCreateCheckInList} from "../../../mutations/useCreateCheckInList.ts";
+import {useParams} from "react-router";
+import {useFormErrorResponseHandler} from "../../../hooks/useFormErrorResponseHandler.tsx";
+import {useGetEvent} from "../../../queries/useGetEvent.ts";
+import {NoResultsSplash} from "../../common/NoResultsSplash";
+import {IconPlus} from "@tabler/icons-react";
+import {CheckInListSuccessModal} from "../CheckInListSuccessModal";
+import {useState} from "react";
+import {getProductsFromEvent} from "../../../utilites/helpers.ts";
+
+interface CreateCheckInListModalProps extends GenericModalProps {
+    initialOccurrenceId?: number | null;
+}
+
+export const CreateCheckInListModal = ({onClose, initialOccurrenceId}: CreateCheckInListModalProps) => {
+    const {eventId} = useParams();
+    const errorHandler = useFormErrorResponseHandler();
+    const {data: event} = useGetEvent(eventId);
+    const [createdCheckInList, setCreatedCheckInList] = useState<CheckInList | null>(null);
+    const form = useForm<CheckInListRequest>({
+        initialValues: {
+            name: '',
+            description: '',
+            expires_at: '',
+            activates_at: '',
+            product_ids: [],
+            event_occurrence_id: initialOccurrenceId ?? null,
+            public_show_attendee_notes: true,
+            public_show_question_answers: true,
+            public_show_order_details: true,
+        }
+    });
+    const createMutation = useCreateCheckInList();
+    const eventHasTickets = getProductsFromEvent(event)?.some(product => product.product_type === 'TICKET');
+
+    const handleSubmit = (requestData: CheckInListRequest) => {
+        createMutation.mutate({
+            eventId: eventId,
+            checkInListData: requestData,
+        }, {
+            onSuccess: (response) => {
+                setCreatedCheckInList(response.data);
+            },
+            onError: (error) => errorHandler(form, error),
+        })
+    }
+
+    const NoProducts = () => {
+        return (
+            <NoResultsSplash
+                imageHref={'/blank-slate/tickets.svg'}
+                heading={t`Please create a ticket`}
+                subHeading={(
+                    <>
+                        <p>
+                            {t`You'll need a ticket before you can create a check-in list.`}
+                        </p>
+                        <Button
+                            size={'xs'}
+                            leftSection={<IconPlus/>}
+                            color={'green'}
+                            onClick={() => window.location.href = `/manage/event/${eventId}/products/#create-product`}
+                        >
+                            {t`Create a Ticket`}
+                        </Button>
+                    </>
+                )}
+            />
+        );
+    }
+
+    if (createdCheckInList) {
+        return (
+            <CheckInListSuccessModal
+                onClose={onClose}
+                checkInListName={createdCheckInList.name}
+                checkInListShortId={createdCheckInList.short_id}
+            />
+        );
+    }
+
+    return (
+        <Modal opened onClose={onClose} heading={t`Create Check-In List`}>
+            {!eventHasTickets && <NoProducts/>}
+            {eventHasTickets && (
+                <form onSubmit={form.onSubmit(handleSubmit)}>
+                    {event && (
+                        <CheckInListForm
+                            form={form}
+                            productCategories={event.product_categories as ProductCategory[]}
+                            eventType={event.type as EventType}
+                            occurrences={event.occurrences}
+                            timezone={event.timezone}
+                            isNewForOccurrence={!!initialOccurrenceId}
+                        />
+                    )}
+                    <ModalFooter>
+                        <Button variant="default" onClick={onClose}>{t`Cancel`}</Button>
+                        <Button
+                            type={'submit'}
+                            loading={createMutation.isPending}
+                            data-testid="checkin-list-submit-button"
+                        >
+                            {t`Create Check-In List`}
+                        </Button>
+                    </ModalFooter>
+                </form>
+            )}
+        </Modal>
+    );
+}

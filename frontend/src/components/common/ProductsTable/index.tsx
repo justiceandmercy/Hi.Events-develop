@@ -1,0 +1,130 @@
+import React, {useEffect, useMemo, useState} from 'react';
+import {SortableProduct} from "./SortableProduct";
+import {SortableCategory} from "./SortableCategory";
+import classes from "./ProductsTable.module.scss";
+import {IdParam, Product, ProductCategory, ProductType} from "../../../types.ts";
+import {t} from "@lingui/macro";
+import {ProductsBlankSlate} from "./ProductsBlankSlate";
+import {useGetEventSeatMap} from "../../../ee/seating/queries/useGetEventSeatMap.ts";
+import {seatedProductIds} from "../../../ee/seating/components/SeatPicker/ticketOptions.ts";
+
+export interface ProductCategoryListProps {
+    initialCategories: ProductCategory[];
+    event: any;
+    onCreateOpen: (categoryId: IdParam) => void;
+    searchTerm: string;
+}
+
+export const ProductCategoryList: React.FC<ProductCategoryListProps> = ({
+                                                                            initialCategories,
+                                                                            event,
+                                                                            onCreateOpen,
+                                                                            searchTerm
+                                                                        }) => {
+    const [categories, setCategories] = useState<ProductCategory[]>(initialCategories);
+    const [filteredCategories, setFilteredCategories] = useState<ProductCategory[]>(initialCategories);
+    const seatMap = useGetEventSeatMap(event?.id, !!event?.has_seat_map).data;
+    const seatedIds = useMemo(() => seatedProductIds(seatMap?.band_products ?? []), [seatMap]);
+
+    useEffect(() => {
+        setCategories(initialCategories);
+    }, [initialCategories]);
+
+    if (!categories || categories.length === 0 || !event) {
+        return <>no categories or event</>;
+    }
+
+    useEffect(() => {
+        if (searchTerm) {
+            const lowercaseSearch = searchTerm.toLowerCase();
+            const filtered = categories
+                .map(category => {
+                    const categoryMatchesSearch = category.name.toLowerCase().includes(lowercaseSearch);
+                    const filteredProducts = category.products?.filter(product =>
+                        product.title.toLowerCase().includes(lowercaseSearch)
+                    );
+
+                    return {
+                        ...category,
+                        products: categoryMatchesSearch
+                            ? category.products
+                            : filteredProducts
+                    };
+                })
+                .filter(category => {
+                    const hasMatchingProducts = category.products ? category.products.length > 0 : false;
+                    const categoryNameMatches = category.name.toLowerCase().includes(lowercaseSearch);
+                    return hasMatchingProducts || categoryNameMatches;
+                });
+
+            setFilteredCategories(filtered);
+        } else {
+            setFilteredCategories(categories);
+        }
+    }, [searchTerm, categories]);
+
+    return (
+        <div>
+            {filteredCategories.length > 0 ? (
+                <div className={classes.categories}>
+                    {filteredCategories.map((category) => {
+                        if (!category?.products) return <></>;
+
+                        return (
+                            <SortableCategory
+                                key={category.id}
+                                category={category}
+                                openCreateModal={() => onCreateOpen(category.id)}
+                                isLastCategory={filteredCategories.length === 1}
+                                categories={categories}
+                            >
+                                {category.products.length === 0 && (
+                                    <ProductsBlankSlate
+                                        productCategories={categories}
+                                        searchTerm={searchTerm}
+                                        openCreateModal={() => onCreateOpen(category.id)}
+                                    />
+                                )}
+                                {category.products.length > 0 && (
+                                    <div className={classes.productList}>
+                                        <div className={classes.productListHeader} aria-hidden="true">
+                                            <span/>
+                                            <span className={classes.headerMain}>{t`Product`}</span>
+                                            <span className={classes.headerPrice}>{t`Price`}</span>
+                                            <span className={classes.headerSales}>
+                                                {category.products.every(product => product.product_type === ProductType.Ticket)
+                                                    ? t`Attendees`
+                                                    : t`Sold`}
+                                            </span>
+                                            <span className={classes.headerPeriod}>{t`Sale Period`}</span>
+                                            <span className={classes.headerStatus}>{t`Status`}</span>
+                                            <span/>
+                                        </div>
+                                        {category.products.map((product: Product) => (
+                                            <SortableProduct
+                                                key={product.id}
+                                                product={product}
+                                                currencyCode={event.currency}
+                                                categories={categories}
+                                                category={category}
+                                                isRecurringEvent={event.type === 'RECURRING'}
+                                                isSeated={seatedIds.has(Number(product.id))}
+                                                eventTimezone={event.timezone}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </SortableCategory>
+                        );
+                    })}
+                </div>
+            ) : (
+                <ProductsBlankSlate
+                    productCategories={categories}
+                    searchTerm={searchTerm}
+                    openCreateModal={onCreateOpen}
+                />
+            )}
+        </div>
+    );
+};

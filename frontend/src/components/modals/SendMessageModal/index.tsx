@@ -1,0 +1,594 @@
+import {Event, EventOccurrence, EventType, GenericModalProps, IdParam, MessageType, ProductType, QueryFilters} from "../../../types.ts";
+import {NavLink, useParams} from "react-router";
+import {useGetEvent} from "../../../queries/useGetEvent.ts";
+import {useGetOrder} from "../../../queries/useGetOrder.ts";
+import {Modal} from "../../common/Modal";
+import {
+    Alert,
+    Button,
+    Checkbox,
+    ComboboxItem,
+    ComboboxItemGroup,
+    Group,
+    LoadingOverlay,
+    Menu,
+    MultiSelect,
+    Select,
+    Text,
+    TextInput
+} from "@mantine/core";
+import {
+    IconAlertCircle,
+    IconBrandStripe,
+    IconCheck,
+    IconChevronDown,
+    IconClock,
+    IconCopy,
+    IconSend,
+    IconTestPipe
+} from "@tabler/icons-react";
+import {Callout} from "../../common/Callout";
+import {useGetMe} from "../../../queries/useGetMe.ts";
+import {useForm, UseFormReturnType} from "@mantine/form";
+import {useFormErrorResponseHandler} from "../../../hooks/useFormErrorResponseHandler.tsx";
+import {showSuccess} from "../../../utilites/notifications.tsx";
+import {t} from "@lingui/macro";
+import {Editor} from "../../common/Editor";
+import {useSendEventMessage} from "../../../mutations/useSendEventMessage.ts";
+import {ProductSelector} from "../../common/ProductSelector";
+import {useMemo, useState} from "react";
+import {useGetAccount} from "../../../queries/useGetAccount.ts";
+import {getConfig} from "../../../utilites/config";
+import {utcToTz, prettyDate} from "../../../utilites/dates.ts";
+import {useGetEventOccurrences} from "../../../queries/useGetEventOccurrences.ts";
+import dayjs from "dayjs";
+import classes from "./SendMessageModal.module.scss";
+import {DateTimeField} from "../../common/DateTimeField";
+
+interface EventMessageModalProps extends GenericModalProps {
+    orderId?: IdParam,
+    productId?: IdParam,
+    messageType?: MessageType,
+    attendeeId?: IdParam,
+    eventOccurrenceId?: IdParam,
+    eventOccurrenceIds?: IdParam[],
+    initialSubject?: string,
+    initialMessage?: string,
+}
+
+const OrderField = ({orderId, eventId}: { orderId: IdParam, eventId: IdParam }) => {
+    const {data: order} = useGetOrder(eventId, orderId);
+
+    if (!order) {
+        return null;
+    }
+
+    return (
+        <TextInput
+            label={t`Recipient`}
+            disabled
+            placeholder={order.email
+                ? `${order.first_name} ${order.last_name} <${order.email}>`
+                : `${order.first_name} ${order.last_name}`}
+        />
+    )
+}
+
+const AttendeeField = ({orderId, eventId, attendeeId, form}: {
+    orderId: IdParam,
+    eventId: IdParam,
+    attendeeId: IdParam,
+    form: UseFormReturnType<any>
+}) => {
+    const {data: order} = useGetOrder(eventId, orderId);
+    const {data: {products} = {}} = useGetEvent(eventId);
+
+    if (!order || !products || !attendeeId) {
+        return null;
+    }
+
+    const groups: ComboboxItemGroup<ComboboxItem>[] = products.map(product => {
+        return {
+            group: product.title,
+            items: order.attendees?.filter(a => a.product_id === product.id).map(attendee => {
+                return {
+                    value: String(attendee.id),
+                    label: attendee.first_name + ' ' + attendee.last_name,
+                };
+            }) || []
+        }
+    });
+
+    return (
+        <MultiSelect
+            label={t`Message individual attendees`}
+            searchable
+            data={groups}
+            {...form.getInputProps('attendee_ids')}
+        />
+    )
+}
+
+const CUSTOM_PRESET = 'custom';
+
+const getSchedulePresets = (event: Event, occurrence?: EventOccurrence) => {
+    const now = dayjs.utc();
+    const startDate = occurrence ? dayjs.utc(occurrence.start_date) : dayjs.utc(event.start_date);
+    const endDate = occurrence?.end_date
+        ? dayjs.utc(occurrence.end_date)
+        : event.end_date ? dayjs.utc(event.end_date) : null;
+
+    const presets: { value: string; label: string; utcDate: dayjs.Dayjs }[] = [
+        {value: '1_week_before', label: t`1 week before event`, utcDate: startDate.subtract(1, 'week')},
+        {value: '1_day_before', label: t`1 day before event`, utcDate: startDate.subtract(1, 'day')},
+        {value: '1_hour_before', label: t`1 hour before event`, utcDate: startDate.subtract(1, 'hour')},
+        {value: '1_day_after_start', label: t`1 day after start date`, utcDate: startDate.add(1, 'day')},
+    ];
+
+    if (endDate) {
+        presets.push({
+            value: '1_day_after_end',
+            label: t`1 day after end date`,
+            utcDate: endDate.add(1, 'day'),
+        });
+    }
+
+    return presets.filter(p => p.utcDate.isAfter(now));
+};
+
+export const SendMessageModal = (props: EventMessageModalProps) => {
+    const {
+        onClose, orderId, productId, messageType, attendeeId,
+        eventOccurrenceId: rawEventOccurrenceId, eventOccurrenceIds,
+        initialSubject, initialMessage,
+    } = props;
+    const isMultiOccurrence = !!eventOccurrenceIds && eventOccurrenceIds.length > 1;
+    const eventOccurrenceId = rawEventOccurrenceId
+        ?? (eventOccurrenceIds?.length === 1 ? eventOccurrenceIds[0] : undefined);
+    const {eventId} = useParams();
+    const {data: event, data: {product_categories} = {}} = useGetEvent(eventId);
+    const isRecurring = event?.type === EventType.RECURRING;
+    const {data: occurrencesData} = useGetEventOccurrences(
+        eventId,
+        {pageNumber: 1, perPage: 100} as QueryFilters,
+    );
+    const occurrenceOptions = useMemo(() => {
+        if (!isRecurring || !occurrencesData?.data) return [];
+        return occurrencesData.data
+            .filter(occ => occ.status !== 'CANCELLED')
+            .map(occ => ({
+                label: prettyDate(occ.start_date, event?.timezone || 'UTC')
+                    + (occ.label ? ` (${occ.label})` : ''),
+                value: String(occ.id),
+            }));
+    }, [isRecurring, occurrencesData, event?.timezone]);
+
+    const targetedOccurrences = useMemo(() => {
+        if (!isMultiOccurrence || !occurrencesData?.data || !eventOccurrenceIds) return [];
+        const ids = new Set(eventOccurrenceIds.map(id => Number(id)));
+        return occurrencesData.data
+            .filter(occ => ids.has(Number(occ.id)))
+            .sort((a, b) => a.start_date.localeCompare(b.start_date));
+    }, [isMultiOccurrence, eventOccurrenceIds, occurrencesData]);
+    const {data: me} = useGetMe();
+    const errorHandler = useFormErrorResponseHandler();
+    const isPreselectedRecipient = !!(orderId || attendeeId || productId);
+    const {data: account, isFetched: isAccountFetched} = useGetAccount();
+    const isAccountVerified = isAccountFetched && account?.is_account_email_confirmed;
+    const accountRequiresManualVerification = isAccountFetched && account?.requires_manual_verification;
+    const formIsDisabled = !isAccountVerified || accountRequiresManualVerification;
+    const supportEmail = getConfig('VITE_PLATFORM_SUPPORT_EMAIL');
+    const [tierLimitError, setTierLimitError] = useState<string | null>(null);
+    const [isScheduled, setIsScheduled] = useState(false);
+    const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+
+    const sendMessageMutation = useSendEventMessage();
+
+    const form = useForm({
+        initialValues: {
+            subject: initialSubject ?? '',
+            message: initialMessage ?? '',
+            message_type: (messageType ?? null) as MessageType | null,
+            attendee_ids: attendeeId ? [String(attendeeId)] : [],
+            product_ids: productId ? [String(productId)] : [],
+            order_id: orderId,
+            is_test: false,
+            send_copy_to_current_user: false,
+            type: 'EVENT',
+            acknowledgement: false,
+            order_statuses: ['COMPLETED'],
+            scheduled_at: '',
+            event_occurrence_id: eventOccurrenceId ? Number(eventOccurrenceId) : null as number | null,
+            event_occurrence_ids: isMultiOccurrence
+                ? eventOccurrenceIds!.map(id => Number(id))
+                : null as number[] | null,
+        },
+        validate: {
+            acknowledgement: (value) => value === true ? null : t`You must acknowledge that this email is not promotional`,
+            message_type: (value) => value ? null : t`Choose who should receive this message`,
+            scheduled_at: (value, values) => {
+                if (!isScheduled || values.is_test) return null;
+                if (selectedPreset && selectedPreset !== CUSTOM_PRESET) return null;
+                if (!value) return t`The scheduled time is required`;
+                if (event && dayjs.tz(value, event.timezone).isBefore(dayjs())) return t`The scheduled time must be in the future`;
+                return null;
+            },
+        }
+    });
+
+    const selectedOccurrence = useMemo<EventOccurrence | undefined>(() => {
+        if (!form.values.event_occurrence_id || !occurrencesData?.data) return undefined;
+        return occurrencesData.data.find(occ => occ.id === form.values.event_occurrence_id);
+    }, [form.values.event_occurrence_id, occurrencesData]);
+
+    const presets = useMemo(() => event ? getSchedulePresets(event, selectedOccurrence) : [], [event, selectedOccurrence]);
+
+    const resolvedPreset = useMemo(() => {
+        if (!selectedPreset || selectedPreset === CUSTOM_PRESET) return null;
+        return presets.find(p => p.value === selectedPreset) ?? null;
+    }, [selectedPreset, presets]);
+
+    const willSchedule = isScheduled && !form.values.is_test;
+
+    const handleSend = (values: any) => {
+        setTierLimitError(null);
+        const submitData = {...values};
+        if (willSchedule) {
+            if (selectedPreset && selectedPreset !== CUSTOM_PRESET && resolvedPreset && event) {
+                submitData.scheduled_at = resolvedPreset.utcDate.tz(event.timezone).format('YYYY-MM-DDTHH:mm');
+            }
+        } else {
+            delete submitData.scheduled_at;
+        }
+        sendMessageMutation.mutate({
+            eventId: eventId,
+            messageData: submitData,
+        }, {
+            onSuccess: () => {
+                if (values.is_test) {
+                    showSuccess(t`Test email sent to your inbox`);
+                } else {
+                    showSuccess(willSchedule ? t`Message Scheduled` : t`Message Sent`);
+                }
+                form.reset();
+                onClose();
+            },
+            onError: (error: any) => {
+                if (error?.response?.status === 429) {
+                    const message = error?.response?.data?.message || t`You have reached your messaging limit.`;
+                    setTierLimitError(message);
+                } else {
+                    errorHandler(form, error);
+                }
+            }
+        });
+    }
+
+    if (!event || !me || !product_categories) {
+        return <LoadingOverlay visible/>;
+    }
+
+    return (
+        <Modal
+            withCloseButton
+            opened
+            onClose={onClose}
+            heading={t`Send a message`}
+        >
+            {!isAccountFetched && (
+                <div className={classes.loadingContainer}>
+                    <LoadingOverlay visible/>
+                </div>
+            )}
+
+            <form onSubmit={form.onSubmit(handleSend)}>
+                {(!isAccountVerified && isAccountFetched) && (
+                    <Callout variant="info" className={classes.verificationAlert}>
+                        {t`You need to verify your account email before you can send messages.`}
+                    </Callout>
+                )}
+
+                {accountRequiresManualVerification && (
+                    <Callout variant="info" className={classes.verificationAlert}
+                             title={t`Connect Stripe to enable messaging`}>
+                        {t`Due to the high risk of spam, you must connect a Stripe account before you can send messages to attendees.
+                         This is to ensure that all event organizers are verified and accountable.`}
+                        {event?.organizer_id && (
+                            <div className={classes.stripeConnectButton}>
+                                <Button
+                                    component={NavLink}
+                                    to={`/manage/organizer/${event.organizer_id}/settings#payouts`}
+                                    leftSection={<IconBrandStripe size={16}/>}
+                                    variant="light"
+                                >
+                                    {t`Connect Stripe`}
+                                </Button>
+                            </div>
+                        )}
+                    </Callout>
+                )}
+
+                {tierLimitError && (
+                    <Alert
+                        variant="light"
+                        color="red"
+                        icon={<IconAlertCircle size="1rem"/>}
+                        mb="md"
+                    >
+                        {tierLimitError}
+                        {supportEmail && (
+                            <>
+                                {' '}{t`To increase your limits, contact us at`}{' '}
+                                <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
+                            </>
+                        )}
+                    </Alert>
+                )}
+
+                {!formIsDisabled && !tierLimitError && supportEmail && (
+                    <Callout variant="info">
+                        {t`Your account has messaging limits. To increase your limits, contact us at`}{' '}
+                        <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
+                    </Callout>
+                )}
+
+                {!formIsDisabled && (
+                    <fieldset disabled={formIsDisabled} style={{border: 'none', padding: 0, margin: 0}}>
+                        <div className={classes.formSection}>
+                            {isMultiOccurrence && (
+                                <Callout variant="info">
+                                    <Text size="sm" fw={500} mb={targetedOccurrences.length ? 'xs' : 0}>
+                                        {t`Targeting attendees across ${eventOccurrenceIds!.length} selected sessions.`}
+                                    </Text>
+                                    {targetedOccurrences.length > 0 && (
+                                        <div className={classes.occurrenceList}>
+                                            {targetedOccurrences.map(occ => (
+                                                <div key={occ.id} className={classes.occurrenceChip}>
+                                                    {prettyDate(occ.start_date, event?.timezone || 'UTC')}
+                                                    {occ.label && <span className={classes.occurrenceChipLabel}> · {occ.label}</span>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {eventOccurrenceIds!.length > targetedOccurrences.length && (
+                                        <Text size="xs" c="dimmed" mt="xs">
+                                            {t`Showing the first ${targetedOccurrences.length} — the remaining ${eventOccurrenceIds!.length - targetedOccurrences.length} session(s) will still be targeted when the message is sent.`}
+                                        </Text>
+                                    )}
+                                </Callout>
+                            )}
+
+                            {isRecurring && !isPreselectedRecipient && !isMultiOccurrence && occurrenceOptions.length > 0 && (
+                                <Select
+                                    label={t`Occurrence`}
+                                    description={t`Send to all occurrences, or choose a specific one`}
+                                    placeholder={t`All occurrences`}
+                                    data={occurrenceOptions}
+                                    value={form.values.event_occurrence_id ? String(form.values.event_occurrence_id) : null}
+                                    onChange={(val) => form.setFieldValue('event_occurrence_id', val ? Number(val) : null)}
+                                    clearable={!eventOccurrenceId}
+                                    disabled={!!eventOccurrenceId}
+                                />
+                            )}
+
+                            {!isPreselectedRecipient && (
+                                <Select
+                                    data={[
+                                        {
+                                            value: 'TICKET_HOLDERS',
+                                            label: t`Attendees with a specific ticket`,
+                                        },
+                                        {
+                                            value: 'ALL_ATTENDEES',
+                                            label: isMultiOccurrence
+                                                ? t`All attendees of the selected sessions`
+                                                : form.values.event_occurrence_id
+                                                    ? t`All attendees of this occurrence`
+                                                    : t`All attendees of this event`,
+                                        },
+                                        {
+                                            value: 'ORDER_OWNERS_WITH_PRODUCT',
+                                            label: t`Order owners with a specific product`,
+                                        },
+                                    ]}
+                                    label={t`Recipients`}
+                                    description={t`Select which attendees should receive this message`}
+                                    placeholder={t`Select attendee group`}
+                                    withAsterisk
+                                    {...form.getInputProps('message_type')}
+                                    onChange={(value) => {
+                                        form.setFieldValue('message_type', value as MessageType | null);
+                                        form.setFieldValue('product_ids', []);
+                                    }}
+                                />
+                            )}
+
+                            {((form.values.message_type === MessageType.IndividualAttendees) && attendeeId && orderId) && (
+                                <AttendeeField eventId={eventId} orderId={orderId} attendeeId={attendeeId} form={form}/>
+                            )}
+
+                            {((form.values.message_type === MessageType.TicketHolders && event.product_categories)) && (
+                                <ProductSelector
+                                    label={t`Message attendees with specific tickets`}
+                                    placeholder={t`Select tickets`}
+                                    productCategories={event.product_categories}
+                                    form={form}
+                                    productFieldName={'product_ids'}
+                                    includedProductTypes={[ProductType.Ticket]}
+                                />
+                            )}
+
+                            {((form.values.message_type === MessageType.OrderOwnersWithProduct && event.product_categories)) && (
+                                <>
+                                    <ProductSelector
+                                        label={t`Message order owners with specific products`}
+                                        placeholder={t`Select products`}
+                                        productCategories={event.product_categories}
+                                        form={form}
+                                        productFieldName={'product_ids'}
+                                        includedProductTypes={[ProductType.Ticket, ProductType.General]}
+                                    />
+                                    <MultiSelect
+                                        description={t`Only send to orders with these statuses`}
+                                        label={t`Order statuses`}
+                                        data={[
+                                            {value: 'COMPLETED', label: t`Completed`},
+                                            {value: 'AWAITING_OFFLINE_PAYMENT', label: t`Awaiting offline payment`},
+                                        ]}
+                                        {...form.getInputProps('order_statuses')}
+                                    />
+                                </>
+                            )}
+
+                            {(form.values.message_type === MessageType.OrderOwner && orderId) && (
+                                <OrderField orderId={orderId} eventId={eventId}/>
+                            )}
+
+                            <TextInput
+                                required
+                                label={t`Subject`}
+                                placeholder={t`e.g., Important update about your tickets`}
+                                {...form.getInputProps('subject')}
+                            />
+
+                            <Editor
+                                label={t`Message`}
+                                value={form.values.message || ''}
+                                onChange={(value) => form.setFieldValue('message', value)}
+                                error={form.errors.message as string}
+                            />
+                        </div>
+
+                        <div className={classes.footerSection}>
+                            <div className={classes.scheduleSection}>
+                                <div className={classes.sendToggle}>
+                                    <button
+                                        type="button"
+                                        className={`${classes.toggleOption} ${!isScheduled ? classes.toggleActive : ''}`}
+                                        onClick={() => {
+                                            setIsScheduled(false);
+                                            form.setFieldValue('scheduled_at', '');
+                                            setSelectedPreset(null);
+                                        }}
+                                    >
+                                        <IconSend size={15}/>
+                                        {t`Send now`}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`${classes.toggleOption} ${isScheduled ? classes.toggleActive : ''}`}
+                                        onClick={() => setIsScheduled(true)}
+                                    >
+                                        <IconClock size={15}/>
+                                        {t`Schedule for later`}
+                                    </button>
+                                </div>
+                                {isScheduled && (
+                                    <div className={classes.scheduleBody}>
+                                        <div className={classes.presetChips}>
+                                            {presets.map(p => (
+                                                <button
+                                                    key={p.value}
+                                                    type="button"
+                                                    className={`${classes.presetChip} ${selectedPreset === p.value ? classes.presetChipActive : ''}`}
+                                                    onClick={() => {
+                                                        setSelectedPreset(p.value);
+                                                        form.setFieldValue('scheduled_at', '');
+                                                    }}
+                                                >
+                                                    {p.label}
+                                                </button>
+                                            ))}
+                                            <button
+                                                type="button"
+                                                className={`${classes.presetChip} ${selectedPreset === CUSTOM_PRESET ? classes.presetChipActive : ''}`}
+                                                onClick={() => setSelectedPreset(CUSTOM_PRESET)}
+                                            >
+                                                {t`Custom date and time`}
+                                            </button>
+                                        </div>
+                                        {selectedPreset === CUSTOM_PRESET && (
+                                            <DateTimeField
+                                                label={t`Scheduled time`}
+                                                description={event.timezone}
+                                                minDate={utcToTz(dayjs.utc().toISOString(), event.timezone)}
+                                                {...form.getInputProps('scheduled_at')}
+                                            />
+                                        )}
+                                        {resolvedPreset && event && (
+                                            <div className={classes.scheduledConfirmation}>
+                                                <div className={classes.scheduledConfirmationIcon}>
+                                                    <IconClock size={20}/>
+                                                </div>
+                                                <div className={classes.scheduledConfirmationText}>
+                                                    <span className={classes.scheduledConfirmationDate}>
+                                                        {resolvedPreset.utcDate.tz(event.timezone).format('dddd, MMMM D, YYYY')}
+                                                    </span>
+                                                    <span className={classes.scheduledConfirmationTime}>
+                                                        {resolvedPreset.utcDate.tz(event.timezone).format('h:mm A')}
+                                                        {' '}<span className={classes.scheduledConfirmationTz}>{event.timezone}</span>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            <Checkbox
+                                {...form.getInputProps('acknowledgement', {type: 'checkbox'})}
+                                label={t`I confirm this is a transactional message related to this event`}
+                            />
+
+                            <Group gap={0}>
+                                <Button
+                                    className={classes.sendButton}
+                                    loading={sendMessageMutation.isPending}
+                                    type={'submit'}
+                                    leftSection={willSchedule ? <IconClock size={16}/> : <IconSend size={16}/>}
+                                    disabled={!form.values.acknowledgement || !isAccountVerified || accountRequiresManualVerification}
+                                    data-testid="message-send-button"
+                                >
+                                    {form.values.is_test ? t`Send Test` : (willSchedule ? t`Schedule Message` : t`Send Message`)}
+                                </Button>
+                                <Menu shadow="md" width={220} position="bottom-end">
+                                    <Menu.Target>
+                                        <Button
+                                            type="button"
+                                            className={classes.menuButton}
+                                            disabled={!form.values.acknowledgement || !isAccountVerified || accountRequiresManualVerification}
+                                            data-testid="message-send-options-button"
+                                        >
+                                            <IconChevronDown size={16}/>
+                                        </Button>
+                                    </Menu.Target>
+                                    <Menu.Dropdown>
+                                        <Menu.Item
+                                            leftSection={<IconTestPipe size={16}/>}
+                                            rightSection={form.values.is_test ? <IconCheck size={14}/> : null}
+                                            onClick={() => form.setFieldValue('is_test', !form.values.is_test)}
+                                        >
+                                            {t`Send as test`}
+                                        </Menu.Item>
+                                        <Menu.Item
+                                            leftSection={<IconCopy size={16}/>}
+                                            rightSection={form.values.send_copy_to_current_user ?
+                                                <IconCheck size={14}/> : null}
+                                            onClick={() => form.setFieldValue('send_copy_to_current_user', !form.values.send_copy_to_current_user)}
+                                        >
+                                            {t`Send me a copy`}
+                                        </Menu.Item>
+                                    </Menu.Dropdown>
+                                </Menu>
+                            </Group>
+
+                            <p className={classes.warningText}>
+                                {t`Promotional emails may result in account suspension`}
+                            </p>
+                        </div>
+                    </fieldset>
+                )}
+            </form>
+        </Modal>
+    )
+};

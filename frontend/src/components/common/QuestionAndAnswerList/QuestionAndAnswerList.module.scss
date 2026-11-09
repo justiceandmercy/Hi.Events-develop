@@ -1,0 +1,143 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-lg);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.groupTitle {
+  color: var(--mantine-color-dimmed);
+}
+
+.groupCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--mantine-radius-xl);
+  background-color: var(--mantine-color-gray-1);
+  color: var(--mantine-color-dimmed);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.questionsList {
+  display: flex;
+  flex-direction: column;
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+
+  & + & {
+    border-top: 1px solid var(--mantine-color-gray-2);
+  }
+}
+
+.questionHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+}
+
+.questionText {
+  color: var(--mantine-color-dimmed);
+  font-weight: 500;
+  min-width: 0;
+}
+
+.productTitle {
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.answerContainer {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+}
+
+.answer {
+  flex: 1;
+  min-width: 0;
+  color: var(--mantine-color-text);
+  word-break: break-word;
+  white-space: pre-line;
+}
+
+.emptyAnswer {
+  flex: 1;
+  color: var(--mantine-color-dimmed);
+}
+
+.editButton {
+  flex-shrink: 0;
+  margin-top: -2px;
+}
+
+.editContainer {
+  margin-top: 4px;
+  padding: var(--mantine-spacing-sm);
+  background-color: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
+}
+
+.editActions {
+  margin-top: var(--mantine-spacing-xs);
+}
+
+.attendeeGroups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+
+.attendeeGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.attendeeHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--mantine-color-gray-3);
+}
+
+.attendeeIcon {
+  color: var(--mantine-color-dimmed);
+  flex-shrink: 0;
+}
+
+.attendeeName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attendeeHeader .productTitle {
+  margin-left: auto;
+}

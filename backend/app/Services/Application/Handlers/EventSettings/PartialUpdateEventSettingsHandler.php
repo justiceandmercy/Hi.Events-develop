@@ -1,0 +1,152 @@
+<?php
+
+namespace HiEvents\Services\Application\Handlers\EventSettings;
+
+use HiEvents\DomainObjects\EventSettingDomainObject;
+use HiEvents\Exceptions\RefundNotPossibleException;
+use HiEvents\Repository\Interfaces\EventSettingsRepositoryInterface;
+use HiEvents\Services\Application\Handlers\EventSettings\DTO\PartialUpdateEventSettingsDTO;
+use HiEvents\Services\Application\Handlers\EventSettings\DTO\UpdateEventSettingsDTO;
+use Throwable;
+
+class PartialUpdateEventSettingsHandler
+{
+    public function __construct(
+        private readonly UpdateEventSettingsHandler $eventSettingsHandler,
+        private readonly EventSettingsRepositoryInterface $eventSettingsRepository,
+    ) {}
+
+    /**
+     * @throws Throwable
+     */
+    public function handle(PartialUpdateEventSettingsDTO $eventSettingsDTO): EventSettingDomainObject
+    {
+        $existingSettings = $this->eventSettingsRepository->findFirstWhere([
+            'event_id' => $eventSettingsDTO->event_id,
+        ]);
+
+        if (! $existingSettings) {
+            throw new RefundNotPossibleException('Event settings not found');
+        }
+
+        return $this->eventSettingsHandler->handle(
+            UpdateEventSettingsDTO::fromArray([
+                'event_id' => $eventSettingsDTO->event_id,
+                'account_id' => $eventSettingsDTO->account_id,
+                'post_checkout_message' => array_key_exists('post_checkout_message', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['post_checkout_message']
+                    : $existingSettings->getPostCheckoutMessage(),
+                'pre_checkout_message' => array_key_exists('pre_checkout_message', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['pre_checkout_message']
+                    : $existingSettings->getPreCheckoutMessage(),
+                'email_footer_message' => $eventSettingsDTO->settings['email_footer_message'] ?? $existingSettings->getEmailFooterMessage(),
+                'support_email' => $eventSettingsDTO->settings['support_email'] ?? $existingSettings->getSupportEmail(),
+                'require_attendee_details' => $eventSettingsDTO->settings['require_attendee_details'] ?? $existingSettings->getRequireAttendeeDetails(),
+                'attendee_details_collection_method' => $eventSettingsDTO->settings['attendee_details_collection_method'] ?? $existingSettings->getAttendeeDetailsCollectionMethod(),
+                'continue_button_text' => array_key_exists('continue_button_text', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['continue_button_text']
+                    : $existingSettings->getContinueButtonText(),
+                'get_tickets_button_text' => array_key_exists('get_tickets_button_text', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['get_tickets_button_text']
+                    : $existingSettings->getGetTicketsButtonText(),
+
+                'homepage_background_color' => $eventSettingsDTO->settings['homepage_background_color'] ?? $existingSettings->getHomepageBackgroundColor(),
+                'homepage_primary_color' => $eventSettingsDTO->settings['homepage_primary_color'] ?? $existingSettings->getHomepagePrimaryColor(),
+                'homepage_primary_text_color' => $eventSettingsDTO->settings['homepage_primary_text_color'] ?? $existingSettings->getHomepagePrimaryTextColor(),
+                'homepage_secondary_color' => $eventSettingsDTO->settings['homepage_secondary_color'] ?? $existingSettings->getHomepageSecondaryColor(),
+                'homepage_secondary_text_color' => $eventSettingsDTO->settings['homepage_secondary_text_color'] ?? $existingSettings->getHomepageSecondaryTextColor(),
+                'homepage_body_background_color' => $eventSettingsDTO->settings['homepage_body_background_color'] ?? $existingSettings->getHomepageBodyBackgroundColor(),
+                'homepage_background_type' => $eventSettingsDTO->settings['homepage_background_type'] ?? $existingSettings->getHomepageBackgroundType(),
+
+                'order_timeout_in_minutes' => $eventSettingsDTO->settings['order_timeout_in_minutes'] ?? $existingSettings->getOrderTimeoutInMinutes(),
+                'website_url' => $eventSettingsDTO->settings['website_url'] ?? $existingSettings->getWebsiteUrl(),
+                'maps_url' => array_key_exists('maps_url', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['maps_url']
+                    : $existingSettings->getMapsUrl(),
+
+                'seo_title' => $eventSettingsDTO->settings['seo_title'] ?? $existingSettings->getSeoTitle(),
+                'seo_description' => $eventSettingsDTO->settings['seo_description'] ?? $existingSettings->getSeoDescription(),
+                'seo_keywords' => $eventSettingsDTO->settings['seo_keywords'] ?? $existingSettings->getSeoKeywords(),
+                'allow_search_engine_indexing' => $eventSettingsDTO->settings['allow_search_engine_indexing'] ?? $existingSettings->getAllowSearchEngineIndexing(),
+
+                'notify_organizer_of_new_orders' => $eventSettingsDTO->settings['notify_organizer_of_new_orders'] ?? $existingSettings->getNotifyOrganizerOfNewOrders(),
+                'price_display_mode' => $eventSettingsDTO->settings['price_display_mode'] ?? $existingSettings->getPriceDisplayMode(),
+
+                // Payment settings
+                'payment_providers' => $eventSettingsDTO->settings['payment_providers'] ?? $existingSettings->getPaymentProviders(),
+                'offline_payment_instructions' => array_key_exists('offline_payment_instructions', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['offline_payment_instructions']
+                    : $existingSettings->getOfflinePaymentInstructions(),
+                'allow_orders_awaiting_offline_payment_to_check_in' => $eventSettingsDTO->settings['allow_orders_awaiting_offline_payment_to_check_in']
+                    ?? $existingSettings->getAllowOrdersAwaitingOfflinePaymentToCheckIn(),
+                'offline_payment_reporting_enabled' => $eventSettingsDTO->settings['offline_payment_reporting_enabled']
+                    ?? $existingSettings->getOfflinePaymentReportingEnabled(),
+                'offline_payment_order_reference_enabled' => $eventSettingsDTO->settings['offline_payment_order_reference_enabled']
+                    ?? $existingSettings->getOfflinePaymentOrderReferenceEnabled(),
+                'payment_links_enabled' => $eventSettingsDTO->settings['payment_links_enabled']
+                    ?? $existingSettings->getPaymentLinksEnabled(),
+                'payment_link_expiry_hours' => $eventSettingsDTO->settings['payment_link_expiry_hours']
+                    ?? $existingSettings->getPaymentLinkExpiryHours(),
+
+                // Invoice settings
+                'enable_invoicing' => $eventSettingsDTO->settings['enable_invoicing'] ?? $existingSettings->getEnableInvoicing(),
+                'invoice_label' => array_key_exists('invoice_label', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['invoice_label']
+                    : $existingSettings->getInvoiceLabel(),
+                'invoice_prefix' => array_key_exists('invoice_prefix', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['invoice_prefix']
+                    : $existingSettings->getInvoicePrefix(),
+                'invoice_start_number' => $eventSettingsDTO->settings['invoice_start_number'] ?? $existingSettings->getInvoiceStartNumber(),
+                'require_billing_address' => $eventSettingsDTO->settings['require_billing_address'] ?? $existingSettings->getRequireBillingAddress(),
+                'organization_name' => array_key_exists('organization_name', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['organization_name']
+                    : $existingSettings->getOrganizationName(),
+                'organization_address' => array_key_exists('organization_address', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['organization_address']
+                    : $existingSettings->getOrganizationAddress(),
+                'invoice_tax_details' => array_key_exists('invoice_tax_details', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['invoice_tax_details']
+                    : $existingSettings->getInvoiceTaxDetails(),
+                'invoice_notes' => array_key_exists('invoice_notes', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['invoice_notes']
+                    : $existingSettings->getInvoiceNotes(),
+                'invoice_payment_terms_days' => array_key_exists('invoice_payment_terms_days', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['invoice_payment_terms_days']
+                    : $existingSettings->getInvoicePaymentTermsDays(),
+
+                // Ticket design settings
+                'ticket_design_settings' => array_key_exists('ticket_design_settings', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['ticket_design_settings']
+                    : $existingSettings->getTicketDesignSettings(),
+
+                // Marketing settings
+                'show_marketing_opt_in' => $eventSettingsDTO->settings['show_marketing_opt_in'] ?? $existingSettings->getShowMarketingOptIn(),
+
+                // Attendee detail copy control
+                'allow_copy_details_to_all_attendees' => $eventSettingsDTO->settings['allow_copy_details_to_all_attendees'] ?? $existingSettings->getAllowCopyDetailsToAllAttendees(),
+
+                // Platform fee settings
+                'pass_platform_fee_to_buyer' => $eventSettingsDTO->settings['pass_platform_fee_to_buyer'] ?? $existingSettings->getPassPlatformFeeToBuyer(),
+
+                // Homepage theme settings
+                'homepage_theme_settings' => array_key_exists('homepage_theme_settings', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['homepage_theme_settings']
+                    : $existingSettings->getHomepageThemeSettings(),
+                'homepage_sections' => array_key_exists('homepage_sections', $eventSettingsDTO->settings)
+                    ? $eventSettingsDTO->settings['homepage_sections']
+                    : $existingSettings->getHomepageSections(),
+
+                // Self-service settings
+                'allow_attendee_self_edit' => $eventSettingsDTO->settings['allow_attendee_self_edit'] ?? $existingSettings->getAllowAttendeeSelfEdit(),
+
+                // Occurrence display
+                'show_available_occurrence_capacity' => $eventSettingsDTO->settings['show_available_occurrence_capacity'] ?? $existingSettings->getShowAvailableOccurrenceCapacity(),
+                'hide_sold_out_occurrences' => $eventSettingsDTO->settings['hide_sold_out_occurrences'] ?? $existingSettings->getHideSoldOutOccurrences(),
+
+                // Waitlist settings
+                'waitlist_auto_process' => $eventSettingsDTO->settings['waitlist_auto_process'] ?? $existingSettings->getWaitlistAutoProcess(),
+                'waitlist_offer_timeout_minutes' => $eventSettingsDTO->settings['waitlist_offer_timeout_minutes'] ?? $existingSettings->getWaitlistOfferTimeoutMinutes(),
+            ]),
+        );
+    }
+}

@@ -1,0 +1,72 @@
+import {t} from "@lingui/macro";
+import {Event, EventOccurrence, EventOccurrenceStatus, EventType} from "../../../types.ts";
+import {formatDateWithLocale, isSameDayInTimezone} from "../../../utilites/dates.ts";
+
+interface EventDateRangeProps {
+    event: Event;
+    occurrence?: EventOccurrence;
+}
+
+const formatRange = (startDate: string, endDate: string | undefined, tz: string) => {
+    const isSameDay = !!endDate && isSameDayInTimezone(startDate, endDate, tz);
+    const timezone = formatDateWithLocale(startDate, "timezone", tz);
+
+    if (isSameDay) {
+        const dayFormatted = formatDateWithLocale(startDate, "dayName", tz);
+        const startTime = formatDateWithLocale(startDate, "timeOnly", tz);
+        const endTime = formatDateWithLocale(endDate!, "timeOnly", tz);
+
+        return (
+            <span>
+                {dayFormatted} · {startTime} - {endTime} {timezone}
+            </span>
+        );
+    }
+
+    const startDateFormatted = formatDateWithLocale(startDate, "fullDateTime", tz);
+    const endDateFormatted = endDate
+        ? formatDateWithLocale(endDate, "fullDateTime", tz)
+        : null;
+
+    return (
+        <span>
+            {startDateFormatted}
+            {endDateFormatted && ` - ${endDateFormatted}`} {timezone}
+        </span>
+    );
+};
+
+export const EventDateRange = ({event, occurrence}: EventDateRangeProps) => {
+    if (occurrence) {
+        return formatRange(occurrence.start_date, occurrence.end_date, event.timezone);
+    }
+
+    if (event.type === EventType.RECURRING) {
+        const upcomingOccurrences = (event.occurrences || [])
+            .filter(o => o.status !== EventOccurrenceStatus.CANCELLED && !o.is_past)
+            .sort((a, b) => a.start_date.localeCompare(b.start_date));
+
+        const nextStartDate = event.next_occurrence_start_date || upcomingOccurrences[0]?.start_date;
+
+        if (nextStartDate) {
+            const isSingleRemaining = upcomingOccurrences.length === 1
+                && (!event.last_occurrence_date || event.last_occurrence_date === nextStartDate);
+
+            if (isSingleRemaining) {
+                const next = upcomingOccurrences[0];
+                return formatRange(next.start_date, next.end_date, event.timezone);
+            }
+
+            const nextFormatted = formatDateWithLocale(nextStartDate, "shortDateTime", event.timezone);
+            return <span>{t`Next: ${nextFormatted}`}</span>;
+        }
+
+        if (event.upcoming_occurrences_sold_out) {
+            return <span>{t`Sold out`}</span>;
+        }
+
+        return <span>{t`No upcoming dates`}</span>;
+    }
+
+    return formatRange(event.start_date, event.end_date, event.timezone);
+};

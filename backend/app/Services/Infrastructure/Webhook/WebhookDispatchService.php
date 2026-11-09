@@ -1,0 +1,236 @@
+<?php
+
+namespace HiEvents\Services\Infrastructure\Webhook;
+
+use HiEvents\DomainObjects\AttendeeDomainObject;
+use HiEvents\DomainObjects\EventLocationDomainObject;
+use HiEvents\DomainObjects\EventOccurrenceDomainObject;
+use HiEvents\DomainObjects\LocationDomainObject;
+use HiEvents\DomainObjects\OrderItemDomainObject;
+use HiEvents\DomainObjects\ProductPriceDomainObject;
+use HiEvents\DomainObjects\QuestionAndAnswerViewDomainObject;
+use HiEvents\DomainObjects\TaxAndFeesDomainObject;
+use HiEvents\DomainObjects\WebhookDomainObject;
+use HiEvents\Repository\Eloquent\Value\Relationship;
+use HiEvents\Repository\Interfaces\AttendeeCheckInRepositoryInterface;
+use HiEvents\Repository\Interfaces\AttendeeRepositoryInterface;
+use HiEvents\Repository\Interfaces\EventOccurrenceRepositoryInterface;
+use HiEvents\Repository\Interfaces\EventRepositoryInterface;
+use HiEvents\Repository\Interfaces\OrderRepositoryInterface;
+use HiEvents\Repository\Interfaces\ProductRepositoryInterface;
+use HiEvents\Repository\Interfaces\WebhookRepositoryInterface;
+use HiEvents\Resources\Attendee\AttendeeResource;
+use HiEvents\Resources\CheckInList\AttendeeCheckInResource;
+use HiEvents\Resources\Event\EventResource;
+use HiEvents\Resources\EventOccurrence\EventOccurrenceResource;
+use HiEvents\Resources\Order\OrderResource;
+use HiEvents\Resources\Product\ProductResource;
+use HiEvents\Services\Domain\Auth\Access\AccountUserAccessService;
+use HiEvents\Services\Infrastructure\DomainEvents\Enums\DomainEventType;
+use Illuminate\Config\Repository;
+use Illuminate\Http\Resources\Json\JsonResource;
+use Psr\Log\LoggerInterface;
+use Spatie\WebhookServer\WebhookCall;
+
+class WebhookDispatchService
+{
+    private const LARGEST_QUEUED_PAYLOAD_BYTES = 120 * 1024;
+
+    public function __construct(
+        private readonly LoggerInterface $logger,
+        private readonly WebhookRepositoryInterface $webhookRepository,
+        private readonly OrderRepositoryInterface $orderRepository,
+        private readonly ProductRepositoryInterface $productRepository,
+        private readonly AttendeeRepositoryInterface $attendeeRepository,
+        private readonly AttendeeCheckInRepositoryInterface $attendeeCheckInRepository,
+        private readonly EventRepositoryInterface $eventRepository,
+        private readonly EventOccurrenceRepositoryInterface $eventOccurrenceRepository,
+        private readonly AccountUserAccessService $accessService,
+        private readonly Repository $config,
+    ) {}
+
+    public function dispatchEventWebhook(DomainEventType $eventType, int $eventId): void
+    {
+        $event = $this->eventRepository
+            ->loadRelation(new Relationship(domainObject: EventLocationDomainObject::class, nested: [
+                new Relationship(domainObject: LocationDomainObject::class, name: 'location'),
+            ], name: 'event_location'))
+            ->loadRelation(new Relationship(domainObject: EventOccurrenceDomainObject::class, nested: [
+                new Relationship(domainObject: EventLocationDomainObject::class, nested: [
+                    new Relationship(domainObject: LocationDomainObject::class, name: 'location'),
+                ], name: 'event_location'),
+            ]))
+            ->findById($eventId);
+
+        $this->dispatchWebhook(
+            eventType: $eventType,
+            payload: new EventResource($event),
+            eventId: $eventId,
+        );
+    }
+
+    public function dispatchAttendeeWebhook(DomainEventType $eventType, int $attendeeId): void
+    {
+        $attendee = $this->attendeeRepository
+            ->loadRelation(new Relationship(
+                domainObject: QuestionAndAnswerViewDomainObject::class,
+                name: 'question_and_answer_views',
+            ))
+            ->loadRelation(new Relationship(
+                domainObject: EventOccurrenceDomainObject::class,
+                name: 'event_occurrence',
+            ))
+            ->findById($attendeeId);
+
+        $this->dispatchWebhook(
+            eventType: $eventType,
+            payload: new AttendeeResource($attendee),
+            eventId: $attendee->getEventId(),
+        );
+    }
+
+    public function dispatchCheckInWebhook(DomainEventType $eventType, int $attendeeCheckInId): void
+    {
+        $attendeeCheckIn = $this->attendeeCheckInRepository
+            ->loadRelation(new Relationship(
+                domainObject: AttendeeDomainObject::class,
+                name: 'attendee',
+            ))
+            ->includeDeleted()
+            ->findById($attendeeCheckInId);
+
+        $this->dispatchWebhook(
+            eventType: $eventType,
+            payload: new AttendeeCheckInResource($attendeeCheckIn),
+            eventId: $attendeeCheckIn->getEventId(),
+        );
+    }
+
+    public function dispatchOccurrenceWebhook(DomainEventType $eventType, int $occurrenceId): void
+    {
+        $occurrence = $this->eventOccurrenceRepository->findById($occurrenceId);
+
+        if ($occurrence === null) {
+            return;
+        }
+
+        $this->dispatchWebhook(
+            eventType: $eventType,
+            payload: new EventOccurrenceResource($occurrence),
+            eventId: $occurrence->getEventId(),
+        );
+    }
+
+    public function dispatchProductWebhook(DomainEventType $eventType, int $productId): void
+    {
+        $product = $this->productRepository
+            ->loadRelation(ProductPriceDomainObject::class)
+            ->loadRelation(TaxAndFeesDomainObject::class)
+            ->includeDeleted()
+            ->findById($productId);
+
+        $this->dispatchWebhook(
+            eventType: $eventType,
+            payload: new ProductResource($product),
+            eventId: $product->getEventId(),
+        );
+    }
+
+    public function dispatchOrderWebhook(DomainEventType $eventType, int $orderId): void
+    {
+        $order = $this->orderRepository
+            ->loadRelation(new Relationship(
+                domainObject: OrderItemDomainObject::class,
+                nested: [
+                    new Relationship(
+                        domainObject: EventOccurrenceDomainObject::class,
+                        name: 'event_occurrence',
+                    ),
+                ],
+            ))
+            ->loadRelation(new Relationship(
+                domainObject: AttendeeDomainObject::class,
+                nested: [
+                    new Relationship(
+                        domainObject: QuestionAndAnswerViewDomainObject::class,
+                        name: 'question_and_answer_views',
+                    ),
+                    new Relationship(
+                        domainObject: EventOccurrenceDomainObject::class,
+                        name: 'event_occurrence',
+                    ),
+                ],
+                name: 'attendees')
+            )
+            ->loadRelation(QuestionAndAnswerViewDomainObject::class)
+            ->findById($orderId);
+
+        if ($eventType === DomainEventType::ORDER_CREATED) {
+            /** @var AttendeeDomainObject $attendee */
+            foreach ($order->getAttendees() as $attendee) {
+                $this->dispatchAttendeeWebhook(
+                    eventType: DomainEventType::ATTENDEE_CREATED,
+                    attendeeId: $attendee->getId(),
+                );
+            }
+        }
+
+        if ($eventType === DomainEventType::ORDER_CANCELLED) {
+            /** @var AttendeeDomainObject $attendee */
+            foreach ($order->getAttendees() as $attendee) {
+                $this->dispatchAttendeeWebhook(
+                    eventType: DomainEventType::ATTENDEE_CANCELLED,
+                    attendeeId: $attendee->getId(),
+                );
+            }
+        }
+
+        $this->dispatchWebhook(
+            $eventType,
+            new OrderResource($order),
+            $order->getEventId(),
+        );
+    }
+
+    private function dispatchWebhook(DomainEventType $eventType, JsonResource $payload, int $eventId): void
+    {
+        $webhooks = $this->webhookRepository->findEnabledByEventId($eventId)
+            ->filter(fn (WebhookDomainObject $webhook) => in_array($eventType->value, $webhook->getEventTypes(), true));
+
+        if ($webhooks->isEmpty()) {
+            return;
+        }
+
+        $encodedPayload = $this->accessService->withoutMemberRestrictions(
+            fn () => json_encode($payload, JSON_THROW_ON_ERROR),
+        );
+        $resolvedPayload = json_decode($encodedPayload, flags: JSON_THROW_ON_ERROR);
+        $fitsOnTheQueue = strlen($encodedPayload) <= self::LARGEST_QUEUED_PAYLOAD_BYTES;
+
+        foreach ($webhooks as $webhook) {
+            $this->logger->info("Dispatching webhook for event ID: $eventId and webhook ID: {$webhook->getId()}");
+
+            $call = WebhookCall::create()
+                ->url($webhook->getUrl())
+                ->payload([
+                    'event_type' => $eventType->value,
+                    'event_sent_at' => now()->toIso8601String(),
+                    'payload' => $resolvedPayload,
+                ])
+                ->useSecret($webhook->getSecret())
+                ->meta([
+                    'webhook_id' => $webhook->getId(),
+                    'event_id' => $eventId,
+                    'event_type' => $eventType->name,
+                ]);
+
+            if (! $fitsOnTheQueue) {
+                $call->dispatchSync();
+
+                continue;
+            }
+
+            $call->onQueue($this->config->get('queue.webhook_queue_name'))->dispatch();
+        }
+    }
+}

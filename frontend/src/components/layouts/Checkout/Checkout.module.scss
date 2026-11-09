@@ -1,0 +1,181 @@
+@use "../../../styles/mixins";
+
+$font-body:  'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+$content-max-width: 700px;
+$header-row-padding-inline: 24px;
+
+.container {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-family: $font-body;
+
+  background-color: var(--checkout-background, #F9FAFB);
+  color: var(--checkout-text-primary, #1a1a1a);
+
+  .countdown {
+    color: var(--mantine-color-teal-6, #0ca678);
+    font-size: 14px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .countdownCloseToExpiry {
+    color: var(--mantine-color-red-7, #ad2f26);
+  }
+
+  .mainContent {
+    flex: 1;
+    min-width: 0;
+
+    .header {
+      background-color: var(--checkout-surface);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    }
+
+    .headerRow {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 58px;
+      max-width: $content-max-width + 2 * $header-row-padding-inline;
+      margin-inline: auto;
+      padding-inline: $header-row-padding-inline;
+    }
+
+    .backButton {
+      --ai-size: 34px;
+      color: var(--checkout-text-secondary);
+      flex-shrink: 0;
+    }
+
+    .headerDivider {
+      width: 1px;
+      height: 22px;
+      flex-shrink: 0;
+      background-color: var(--checkout-border);
+    }
+
+    .titleBlock {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+
+    .eventName {
+      min-width: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--checkout-text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .headerRowComplete .eventName {
+      font-size: 14.5px;
+    }
+
+    .eyebrow {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+      color: var(--checkout-accent);
+    }
+
+    .eyebrowComplete {
+      color: var(--mantine-color-teal-6, #0ca678);
+    }
+
+    .eyebrowAwaiting {
+      color: var(--mantine-color-yellow-8, #a16207);
+    }
+
+    .headerSpacer {
+      flex: 1;
+    }
+
+    .timerCaption {
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--checkout-text-tertiary);
+
+      @include mixins.respond-below(sm) {
+        display: none;
+      }
+    }
+
+    .timerChip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+      padding: 6px 12px;
+      border-radius: 999px;
+      color: var(--mantine-color-teal-6, #0ca678);
+      background-color: color-mix(in srgb, var(--mantine-color-teal-6, #0ca678) 12%, var(--checkout-surface));
+
+      &:has(.countdownCloseToExpiry) {
+        color: var(--mantine-color-red-7, #ad2f26);
+        background-color: color-mix(in srgb, var(--mantine-color-red-7, #ad2f26) 12%, var(--checkout-surface));
+      }
+    }
+
+    .headerActions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+
+      :global(.mantine-ActionIcon-root) {
+        --ai-size: 34px;
+        color: var(--checkout-text-secondary);
+      }
+    }
+
+    .progressTrack {
+      height: 3px;
+      background-color: color-mix(in srgb, var(--checkout-text-tertiary) 12%, var(--checkout-surface));
+    }
+
+    .progressFill {
+      height: 100%;
+      background-color: var(--checkout-accent);
+      border-start-end-radius: 2px;
+      border-end-end-radius: 2px;
+      transition: width 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+  }
+
+  a:not([class]) {
+    color: var(--checkout-accent);
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  :global(.mantine-SegmentedControl-root) {
+    background-color: var(--checkout-background);
+  }
+
+  :global(.mantine-SegmentedControl-label[data-active]) {
+    color: var(--checkout-accent-contrast) !important;
+  }
+
+  :global(.mantine-SegmentedControl-root[data-disabled='true']) {
+    :global(.mantine-SegmentedControl-indicator) {
+      background-color: var(--checkout-border);
+    }
+
+    :global(.mantine-SegmentedControl-label) {
+      color: var(--checkout-text-tertiary);
+    }
+  }
+}

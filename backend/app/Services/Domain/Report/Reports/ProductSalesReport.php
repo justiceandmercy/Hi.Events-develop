@@ -1,0 +1,55 @@
+<?php
+
+namespace HiEvents\Services\Domain\Report\Reports;
+
+use HiEvents\DomainObjects\Status\OrderStatus;
+use HiEvents\Services\Domain\Report\AbstractReportService;
+use Illuminate\Support\Carbon;
+
+class ProductSalesReport extends AbstractReportService
+{
+    protected function getSqlQuery(Carbon $startDate, Carbon $endDate, ?int $occurrenceId = null): string
+    {
+        $completedStatus = OrderStatus::COMPLETED->name;
+        $occurrenceFilter = $occurrenceId !== null
+            ? 'AND oi.event_occurrence_id = :occurrence_id'
+            : '';
+
+        return <<<SQL
+        WITH filtered_orders AS (
+            SELECT
+                oi.product_id,
+                oi.quantity,
+                oi.total_tax,
+                oi.total_gross,
+                oi.total_service_fee
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            WHERE o.status = '$completedStatus'
+                AND o.event_id = :event_id
+                AND o.created_at BETWEEN :start_at AND :end_at
+                AND oi.deleted_at IS NULL
+                $occurrenceFilter
+        )
+        SELECT
+            p.id AS product_id,
+            p.title AS product_title,
+            p.type AS product_type,
+            COALESCE(SUM(fo.total_tax), 0) AS total_tax,
+            COALESCE(SUM(fo.total_gross), 0) AS total_gross,
+            COALESCE(SUM(fo.total_service_fee), 0) AS total_service_fees,
+            COALESCE(SUM(fo.quantity), 0) AS number_sold
+        FROM products p
+        LEFT JOIN filtered_orders fo ON fo.product_id = p.id
+        WHERE p.event_id = :event_id
+            AND p.deleted_at IS NULL
+        GROUP BY p.id, p.title, p.type
+        ORDER BY p."order"
+SQL;
+    }
+
+    protected function getAdditionalBindings(Carbon $startDate, Carbon $endDate): array
+    {
+        return $this->utcRangeBindings($startDate, $endDate);
+    }
+}

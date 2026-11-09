@@ -1,0 +1,84 @@
+<?php
+
+namespace HiEvents\Resources\Order;
+
+use HiEvents\DomainObjects\Enums\Permission;
+use HiEvents\DomainObjects\OrderDomainObject;
+use HiEvents\Resources\Attendee\AttendeeResource;
+use HiEvents\Resources\BaseResource;
+use HiEvents\Resources\Order\Invoice\InvoiceResource;
+use HiEvents\Resources\Question\QuestionAnswerViewResource;
+use Illuminate\Http\Request;
+
+/**
+ * @mixin OrderDomainObject
+ */
+class OrderResource extends BaseResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->getId(),
+            $this->mergeWhen($this->isPermitted(Permission::EDIT) && $this->isPermitted(Permission::VIEW_FINANCIALS), fn () => [
+                'short_id' => $this->getShortId(),
+            ]),
+            $this->mergeWhen($this->isPermitted(Permission::VIEW_FINANCIALS), fn () => [
+                'total_before_additions' => $this->getTotalBeforeAdditions(),
+                'total_gross' => $this->getTotalGross(),
+                'total_tax' => $this->getTotalTax(),
+                'total_fee' => $this->getTotalFee(),
+                'total_refunded' => $this->getTotalRefunded(),
+                'taxes_and_fees_rollup' => $this->getTaxesAndFeesRollup(),
+            ]),
+            /** @var 'RESERVED'|'CANCELLED'|'COMPLETED'|'AWAITING_OFFLINE_PAYMENT'|'ABANDONED' */
+            'status' => $this->getStatus(),
+            /** @var 'REFUND_PENDING'|'REFUND_FAILED'|'REFUNDED'|'PARTIALLY_REFUNDED'|null */
+            'refund_status' => $this->getRefundStatus(),
+            /** @var 'NO_PAYMENT_REQUIRED'|'AWAITING_PAYMENT'|'AWAITING_OFFLINE_PAYMENT'|'PAYMENT_FAILED'|'PAYMENT_RECEIVED'|null */
+            'payment_status' => $this->getPaymentStatus(),
+            'currency' => $this->getCurrency(),
+            'first_name' => $this->getFirstName(),
+            'last_name' => $this->getLastName(),
+            'email' => $this->getEmail(),
+            'created_at' => $this->getCreatedAt(),
+            'public_id' => $this->getPublicId(),
+            'is_partially_refunded' => $this->isPartiallyRefunded(),
+            'is_fully_refunded' => $this->isFullyRefunded(),
+            'is_free_order' => $this->isFreeOrder(),
+            'is_manually_created' => $this->getIsManuallyCreated(),
+            'box_office_id' => $this->getBoxOfficeId(),
+            $this->mergeWhen($this->isBoxOfficeOrder(), fn () => [
+                'box_office_operator_name' => $this->getBoxOfficeOperatorName(),
+                /** @var 'CASH'|'CARD'|'COMP'|'OTHER'|'FREE'|null */
+                'box_office_tender' => $this->getBoxOfficeTender(),
+                'box_office_amount_tendered' => $this->when($this->isPermitted(Permission::VIEW_FINANCIALS), fn () => $this->getBoxOfficeAmountTendered()),
+                'box_office_change_due' => $this->when($this->isPermitted(Permission::VIEW_FINANCIALS), fn () => $this->getBoxOfficeChangeDue()),
+                'box_office_reference' => $this->getBoxOfficeReference(),
+            ]),
+            'address' => $this->getAddress(),
+            'notes' => $this->getNotes(),
+            'payment_provider' => $this->getPaymentProvider(),
+            'payment_link_created_at' => $this->getPaymentLinkCreatedAt(),
+            'offline_payment_reported_at' => $this->getOfflinePaymentReportedAt(),
+            'offline_payment_note' => $this->getOfflinePaymentNote(),
+            'promo_code' => $this->getPromoCode(),
+            'event_id' => $this->getEventId(),
+            'order_items' => $this->when(
+                ! is_null($this->getOrderItems()),
+                fn () => OrderItemResource::collection($this->getOrderItems())
+            ),
+            'attendees' => $this->when(
+                ! is_null($this->getAttendees()),
+                fn () => AttendeeResource::collection($this->getAttendees())
+            ),
+            'question_answers' => $this->when(
+                ! is_null($this->getQuestionAndAnswerViews()),
+                fn () => QuestionAnswerViewResource::collection($this->getQuestionAndAnswerViews()),
+            ),
+            'latest_invoice' => $this->when(
+                ! is_null($this->getLatestInvoice()),
+                fn () => (new InvoiceResource($this->getLatestInvoice()))->toArray($request),
+            ),
+        ];
+    }
+}

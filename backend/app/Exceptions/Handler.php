@@ -1,0 +1,116 @@
+<?php
+
+namespace HiEvents\Exceptions;
+
+use HiEvents\Enterprise\Licensing\Exceptions\FeatureNotLicensedException;
+use HiEvents\Enterprise\Sso\Exceptions\SsoRequiredException;
+use HiEvents\Services\Domain\Auth\AuthUserService;
+use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Sentry\Laravel\Facade as Sentry;
+use Sentry\State\Scope;
+use Symfony\Component\Routing\Exception\ResourceNotFoundException as SymfonyResourceNotFoundException;
+use Throwable;
+
+class Handler extends ExceptionHandler
+{
+    public const FEATURE_UNAVAILABLE_ERROR_CODE = 'FEATURE_UNAVAILABLE';
+
+    /**
+     * A list of the exception types that are not reported.
+     *
+     * @var array
+     */
+    protected $dontReport = [
+        ResourceNotFoundException::class,
+        ResourceConflictException::class,
+        SymfonyResourceNotFoundException::class,
+        SsoException::class,
+        SsoRequiredException::class,
+    ];
+
+    /**
+     * A list of the inputs that are never flashed for validation exceptions.
+     *
+     * @var array
+     */
+    protected $dontFlash = [
+        'password',
+        'password_confirmation',
+    ];
+
+    /**
+     * Report or log an exception.
+     *
+     * @return void
+     *
+     * @throws Throwable
+     */
+    public function report(Throwable $e)
+    {
+        if ($this->shouldReport($e) && app()->bound('sentry')) {
+            try {
+                $user = auth()->user();
+                if ($user) {
+                    $ip = request()->ip();
+                    $authUserService = app(AuthUserService::class);
+                    $isImpersonating = $authUserService->isImpersonating();
+                    $impersonatorId = $authUserService->getImpersonatorId();
+
+                    Sentry::configureScope(function (Scope $scope) use ($user, $ip, $isImpersonating, $impersonatorId): void {
+                        $scope->setUser([
+                            'id' => $user->id,
+                            'email' => $user->email,
+                            'username' => trim($user->first_name.' '.$user->last_name),
+                            'ip_address' => $ip,
+                        ]);
+
+                        if ($isImpersonating) {
+                            $scope->setTag('is_impersonating', 'true');
+                            $scope->setTag('impersonator_id', (string) $impersonatorId);
+                        }
+                    });
+                }
+            } catch (Throwable) {
+            }
+            Sentry::captureException($e);
+        }
+
+        parent::report($e);
+    }
+
+    /**
+     * Render an exception into an HTTP response.
+     *
+     * @param  Request  $request
+     * @return JsonResponse|Response
+     *
+     * @throws Throwable
+     */
+    public function render($request, Throwable $exception)
+    {
+        if ($exception instanceof ResourceNotFoundException || $exception instanceof SymfonyResourceNotFoundException) {
+            return response()->json([
+                'message' => $exception->getMessage() ?: 'Resource not found',
+            ], 404);
+        }
+
+        if ($exception instanceof FeatureNotLicensedException || $exception instanceof FeatureNotEnabledException) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'error_code' => self::FEATURE_UNAVAILABLE_ERROR_CODE,
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        if ($exception instanceof CodedAccessException) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'error_code' => $exception::ERROR_CODE,
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        return parent::render($request, $exception);
+    }
+}

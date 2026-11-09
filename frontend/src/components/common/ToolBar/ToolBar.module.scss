@@ -1,0 +1,90 @@
+@use "../../../styles/mixins";
+
+.toolbar {
+  container-type: inline-size;
+  margin-bottom: 1rem;
+}
+
+.rowPrimary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  @include mixins.respond-below(sm, true) {
+    flex-wrap: wrap;
+  }
+}
+
+.searchSlot {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0 !important;
+
+  @include mixins.respond-below(sm, true) {
+    flex-basis: 100%;
+  }
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+
+  @include mixins.respond-below(sm, true) {
+    width: 100%;
+    margin-left: 0;
+
+    > * {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+  }
+}
+
+.rowFilters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  flex-wrap: wrap;
+}
+
+.filterSlot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  @include mixins.respond-below(sm, true) {
+    width: 100%;
+
+    > * {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    :global(.mantine-Group-root) {
+      width: 100%;
+
+      > * {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+    }
+  }
+}
+
+.resultCount {
+  font-size: 12px;
+  color: var(--mantine-color-dimmed);
+  margin-left: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+  align-self: center;
+
+  @include mixins.respond-below(md) {
+    display: none;
+  }
+}
